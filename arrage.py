@@ -6,7 +6,7 @@ import win32con
 import win32gui
 from screeninfo import get_monitors
 
-DisplayOnscreen2Horizontally = [
+DisplayOnscreen2Vertically = [
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login",
     "https://reliance-dev.allegromicro.com/Dev/rel/#/app/auth/login",
     "https://reliance-qa.allegromicro.com/Test/rel/#/app/auth/login",
@@ -41,7 +41,7 @@ def list_chrome_windows():
     def cb(hwnd, _):
         if not win32gui.IsWindowVisible(hwnd):
             return
-        if win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1" and win32gui.GetWindowText(hwnd):
+        if win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1":
             handles.append(hwnd)
 
     win32gui.EnumWindows(cb, None)
@@ -53,15 +53,15 @@ def move_window(hwnd, x, y, w, h):
     win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, w, h, win32con.SWP_SHOWWINDOW)
 
 
-def tile_horizontally(monitor, urls):
+def tile_vertically(monitor, urls):
     chrome = find_chrome()
     n = len(urls)
-    tile_w = monitor.width // n
-    tile_h = monitor.height
+    tile_w = monitor.width
+    tile_h = monitor.height // n
 
     for i, url in enumerate(urls):
         before = list_chrome_windows()
-        subprocess.Popen([chrome, "--new-window", url])
+        subprocess.Popen([chrome, f"--app={url}"])
 
         new_hwnd = None
         for _ in range(40):
@@ -75,11 +75,11 @@ def tile_horizontally(monitor, urls):
             print(f"Warning: could not locate new Chrome window for {url}")
             continue
 
-        x = monitor.x + i * tile_w
-        move_window(new_hwnd, x, monitor.y, tile_w, tile_h)
+        y = monitor.y + i * tile_h
+        move_window(new_hwnd, monitor.x, y, tile_w, tile_h)
 
 
 if __name__ == "__main__":
     second = pick_second_monitor()
     print(f"Using monitor: {second.width}x{second.height} at ({second.x}, {second.y})")
-    tile_horizontally(second, DisplayOnscreen2Horizontally)
+    tile_vertically(second, DisplayOnscreen2Vertically)

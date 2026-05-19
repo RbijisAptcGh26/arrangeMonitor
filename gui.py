@@ -22,14 +22,6 @@ class ToggleApp:
         container = ttk.Frame(self.root, padding=20)
         container.pack(expand=True, fill="both")
 
-        self.status = ttk.Label(
-            container,
-            text="Sites are CLOSED",
-            font=("Segoe UI", 16, "bold"),
-            foreground="#888",
-        )
-        self.status.pack(pady=(20, 10))
-
         self.toggle_btn = tk.Button(
             container,
             text="OFF",
@@ -43,7 +35,15 @@ class ToggleApp:
             command=self.toggle,
             cursor="hand2",
         )
-        self.toggle_btn.pack(pady=20)
+        self.toggle_btn.pack(pady=(30, 10))
+
+        self.status = ttk.Label(
+            container,
+            text="Off",
+            font=("Segoe UI", 18, "bold"),
+            foreground="#888",
+        )
+        self.status.pack(pady=(10, 10))
 
         self.hint = ttk.Label(
             container,
@@ -51,7 +51,7 @@ class ToggleApp:
             font=("Segoe UI", 10),
             foreground="#666",
         )
-        self.hint.pack(pady=(10, 0))
+        self.hint.pack(pady=(5, 0))
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -69,7 +69,7 @@ class ToggleApp:
 
     def turn_on(self):
         self.set_busy(True)
-        self.status.config(text="Opening sites...", foreground="#d97706")
+        self.status.config(text="...", foreground="#d97706")
 
         def work():
             try:
@@ -83,20 +83,20 @@ class ToggleApp:
     def _on_opened(self, hwnds, err):
         self.set_busy(False)
         if err:
-            self.status.config(text="Failed to open", foreground="#dc2626")
+            self.status.config(text="Off", foreground="#dc2626")
             messagebox.showerror("Error", str(err))
             return
         self.hwnds = hwnds
         self.is_on = True
         self.toggle_btn.config(text="ON", bg="#16a34a", activebackground="#15803d")
-        self.status.config(text="Sites are OPEN", foreground="#16a34a")
+        self.status.config(text="On", foreground="#16a34a")
 
     def turn_off(self):
         arrage.close_windows(self.hwnds)
         self.hwnds = []
         self.is_on = False
         self.toggle_btn.config(text="OFF", bg="#bbbbbb", activebackground="#999999")
-        self.status.config(text="Sites are CLOSED", foreground="#888")
+        self.status.config(text="Off", foreground="#888")
 
     def on_close(self):
         if self.is_on:

@@ -1,0 +1,111 @@
+import threading
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+import arrage
+
+
+class ToggleApp:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Arrange Monitor")
+
+        dpi = self.root.winfo_fpixels("1i")
+        w, h = int(8 * dpi), int(5 * dpi)
+        self.root.geometry(f"{w}x{h}")
+        self.root.minsize(w // 2, h // 2)
+
+        self.hwnds = []
+        self.is_on = False
+        self.busy = False
+
+        container = ttk.Frame(self.root, padding=20)
+        container.pack(expand=True, fill="both")
+
+        self.status = ttk.Label(
+            container,
+            text="Sites are CLOSED",
+            font=("Segoe UI", 16, "bold"),
+            foreground="#888",
+        )
+        self.status.pack(pady=(20, 10))
+
+        self.toggle_btn = tk.Button(
+            container,
+            text="OFF",
+            font=("Segoe UI", 28, "bold"),
+            width=10,
+            height=2,
+            bg="#bbbbbb",
+            fg="white",
+            relief="flat",
+            activebackground="#999999",
+            command=self.toggle,
+            cursor="hand2",
+        )
+        self.toggle_btn.pack(pady=20)
+
+        self.hint = ttk.Label(
+            container,
+            text=f"{len(arrage.DisplayOnscreen2Vertically)} site(s) configured on monitor 2",
+            font=("Segoe UI", 10),
+            foreground="#666",
+        )
+        self.hint.pack(pady=(10, 0))
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def set_busy(self, busy):
+        self.busy = busy
+        self.toggle_btn.config(state="disabled" if busy else "normal")
+
+    def toggle(self):
+        if self.busy:
+            return
+        if self.is_on:
+            self.turn_off()
+        else:
+            self.turn_on()
+
+    def turn_on(self):
+        self.set_busy(True)
+        self.status.config(text="Opening sites...", foreground="#d97706")
+
+        def work():
+            try:
+                hwnds = arrage.open_sites()
+                self.root.after(0, self._on_opened, hwnds, None)
+            except Exception as e:
+                self.root.after(0, self._on_opened, [], e)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_opened(self, hwnds, err):
+        self.set_busy(False)
+        if err:
+            self.status.config(text="Failed to open", foreground="#dc2626")
+            messagebox.showerror("Error", str(err))
+            return
+        self.hwnds = hwnds
+        self.is_on = True
+        self.toggle_btn.config(text="ON", bg="#16a34a", activebackground="#15803d")
+        self.status.config(text="Sites are OPEN", foreground="#16a34a")
+
+    def turn_off(self):
+        arrage.close_windows(self.hwnds)
+        self.hwnds = []
+        self.is_on = False
+        self.toggle_btn.config(text="OFF", bg="#bbbbbb", activebackground="#999999")
+        self.status.config(text="Sites are CLOSED", foreground="#888")
+
+    def on_close(self):
+        if self.is_on:
+            arrage.close_windows(self.hwnds)
+        self.root.destroy()
+
+    def run(self):
+        self.root.mainloop()
+
+
+if __name__ == "__main__":
+    ToggleApp().run()

@@ -58,6 +58,7 @@ def tile_vertically(monitor, urls):
     n = len(urls)
     tile_w = monitor.width
     tile_h = monitor.height // n
+    opened = []
 
     for i, url in enumerate(urls):
         before = list_chrome_windows()
@@ -77,9 +78,23 @@ def tile_vertically(monitor, urls):
 
         y = monitor.y + i * tile_h
         move_window(new_hwnd, monitor.x, y, tile_w, tile_h)
+        opened.append(new_hwnd)
+
+    return opened
+
+
+def open_sites(urls=None):
+    monitor = pick_second_monitor()
+    return tile_vertically(monitor, urls or DisplayOnscreen2Vertically)
+
+
+def close_windows(hwnds):
+    for hwnd in hwnds:
+        try:
+            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        except Exception as e:
+            print(f"Failed to close hwnd {hwnd}: {e}")
 
 
 if __name__ == "__main__":
-    second = pick_second_monitor()
-    print(f"Using monitor: {second.width}x{second.height} at ({second.x}, {second.y})")
-    tile_vertically(second, DisplayOnscreen2Vertically)
+    open_sites()

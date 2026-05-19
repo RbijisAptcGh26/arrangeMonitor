@@ -24,7 +24,7 @@ class ToggleApp:
 
         self.toggle_btn = tk.Button(
             container,
-            text="OFF",
+            text="On",
             font=("Segoe UI", 28, "bold"),
             width=10,
             height=2,
@@ -88,14 +88,14 @@ class ToggleApp:
             return
         self.hwnds = hwnds
         self.is_on = True
-        self.toggle_btn.config(text="ON", bg="#16a34a", activebackground="#15803d")
+        self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
         self.status.config(text="On", foreground="#16a34a")
 
     def turn_off(self):
         arrage.close_windows(self.hwnds)
         self.hwnds = []
         self.is_on = False
-        self.toggle_btn.config(text="OFF", bg="#bbbbbb", activebackground="#999999")
+        self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
         self.status.config(text="Off", foreground="#888")
 
     def on_close(self):

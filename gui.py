@@ -110,8 +110,17 @@ class ToggleApp:
             lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
         )
 
+        inner.columnconfigure(0, weight=1)
+        inner.columnconfigure(1, weight=0)
+
+        header_name = ttk.Label(inner, text="Site", font=("Segoe UI", 9, "bold"))
+        header_name.grid(row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 4))
+        header_disp = ttk.Label(inner, text="Display", font=("Segoe UI", 9, "bold"))
+        header_disp.grid(row=0, column=1, sticky="w", pady=(0, 4))
+
+        self.site_display_labels = {}
         defaults = set(arrage.DisplayOnscreen2Vertically)
-        for name, url in self.sites:
+        for i, (name, url) in enumerate(self.sites, start=1):
             var = tk.BooleanVar(value=url in defaults)
             cb = ttk.Checkbutton(
                 inner,
@@ -119,8 +128,11 @@ class ToggleApp:
                 variable=var,
                 command=lambda u=url: self.on_site_toggle(u),
             )
-            cb.pack(anchor="w", pady=2)
+            cb.grid(row=i, column=0, sticky="w", padx=(0, 12), pady=2)
+            lbl = ttk.Label(inner, text="—", foreground="#888", width=12)
+            lbl.grid(row=i, column=1, sticky="w", pady=2)
             self.site_vars.append((var, url))
+            self.site_display_labels[url] = lbl
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -141,6 +153,15 @@ class ToggleApp:
 
     def _var_for(self, url):
         return next(v for v, u in self.site_vars if u == url)
+
+    def _set_display_label(self, url, monitor_index):
+        lbl = self.site_display_labels.get(url)
+        if lbl is None:
+            return
+        if monitor_index is None:
+            lbl.config(text="—", foreground="#888")
+        else:
+            lbl.config(text=f"Display {monitor_index + 1}", foreground="#16a34a")
 
     def turn_on(self):
         urls = self.selected_urls()
@@ -172,9 +193,16 @@ class ToggleApp:
         self.is_on = True
         self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
         self.status.config(text="On", foreground="#16a34a")
+        for url in self.hwnds:
+            self._set_display_label(url, monitor_index)
+        for var, url in self.site_vars:
+            if var.get() and url not in self.hwnds:
+                var.set(False)
 
     def turn_off(self):
         arrage.close_windows(list(self.hwnds.values()))
+        for url in list(self.hwnds.keys()):
+            self._set_display_label(url, None)
         self.hwnds = {}
         self.active_monitor_index = None
         self.is_on = False
@@ -204,6 +232,7 @@ class ToggleApp:
                 return
             hwnd = self.hwnds.pop(url)
             arrage.close_windows([hwnd])
+            self._set_display_label(url, None)
             self._retile()
             self.status.config(text="On", foreground="#16a34a")
 
@@ -220,6 +249,7 @@ class ToggleApp:
                 )
             return
         self.hwnds[url] = hwnd
+        self._set_display_label(url, self.active_monitor_index)
         self._retile()
         self.status.config(text="On", foreground="#16a34a")
 

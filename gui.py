@@ -2,6 +2,8 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from screeninfo import get_monitors
+
 import arrage
 
 
@@ -22,8 +24,21 @@ class ToggleApp:
         self.sites = arrage.load_sites()
         self.site_vars = []
 
+        try:
+            monitor_count = len(get_monitors())
+        except Exception:
+            monitor_count = 0
+
         container = ttk.Frame(self.root, padding=20)
         container.pack(expand=True, fill="both")
+
+        self.display_info = ttk.Label(
+            container,
+            text=f"{monitor_count} display(s) detected",
+            font=("Segoe UI", 11, "bold"),
+            foreground="#374151",
+        )
+        self.display_info.pack(pady=(0, 10))
 
         self.toggle_btn = tk.Button(
             container,

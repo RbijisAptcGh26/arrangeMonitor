@@ -39,14 +39,19 @@ def find_chrome():
     raise FileNotFoundError("Chrome not found in standard install locations")
 
 
-def pick_second_monitor():
+def pick_target_monitor():
     monitors = get_monitors()
-    if len(monitors) < 2:
-        raise RuntimeError(f"Only {len(monitors)} monitor(s) detected; need at least 2")
+    if not monitors:
+        raise RuntimeError("No monitors detected")
+    if len(monitors) == 1:
+        return monitors[0]
     for m in monitors:
         if not getattr(m, "is_primary", False):
             return m
     return monitors[1]
+
+
+pick_second_monitor = pick_target_monitor
 
 
 def list_chrome_windows():
@@ -98,7 +103,7 @@ def tile_vertically(monitor, urls):
 
 
 def open_sites(urls=None):
-    monitor = pick_second_monitor()
+    monitor = pick_target_monitor()
     return tile_vertically(monitor, urls or DisplayOnscreen2Vertically)
 
 

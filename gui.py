@@ -29,12 +29,19 @@ class ToggleApp:
         except Exception:
             monitor_count = 0
 
+        if monitor_count == 0:
+            display_text = "No display detected"
+        elif monitor_count == 1:
+            display_text = "1 display detected — tiling on primary"
+        else:
+            display_text = f"{monitor_count} displays detected — tiling on secondary"
+
         container = ttk.Frame(self.root, padding=20)
         container.pack(expand=True, fill="both")
 
         self.display_info = ttk.Label(
             container,
-            text=f"{monitor_count} display(s) detected",
+            text=display_text,
             font=("Segoe UI", 11, "bold"),
             foreground="#374151",
         )

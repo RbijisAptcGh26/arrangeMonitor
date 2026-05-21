@@ -6,11 +6,25 @@ import win32con
 import win32gui
 from screeninfo import get_monitors
 
+SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites.txt")
+
 DisplayOnscreen2Vertically = [
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login",
     "https://reliance-dev.allegromicro.com/Dev/rel/#/app/auth/login",
     "https://reliance-qa.allegromicro.com/Test/rel/#/app/auth/login",
 ]
+
+
+def load_sites(path=SITES_FILE):
+    sites = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "|" not in line:
+                continue
+            name, url = line.split("|", 1)
+            sites.append((name.strip(), url.strip()))
+    return sites
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

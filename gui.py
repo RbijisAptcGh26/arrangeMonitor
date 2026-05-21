@@ -19,6 +19,9 @@ class ToggleApp:
         self.is_on = False
         self.busy = False
 
+        self.sites = arrage.load_sites()
+        self.site_vars = []
+
         container = ttk.Frame(self.root, padding=20)
         container.pack(expand=True, fill="both")
 
@@ -35,7 +38,7 @@ class ToggleApp:
             command=self.toggle,
             cursor="hand2",
         )
-        self.toggle_btn.pack(pady=(30, 10))
+        self.toggle_btn.pack(pady=(10, 10))
 
         self.status = ttk.Label(
             container,
@@ -43,15 +46,36 @@ class ToggleApp:
             font=("Segoe UI", 18, "bold"),
             foreground="#888",
         )
-        self.status.pack(pady=(10, 10))
+        self.status.pack(pady=(5, 10))
 
-        self.hint = ttk.Label(
-            container,
-            text=f"{len(arrage.DisplayOnscreen2Vertically)} site(s) configured on monitor 2",
-            font=("Segoe UI", 10),
-            foreground="#666",
+        list_frame = ttk.LabelFrame(container, text="Sites", padding=10)
+        list_frame.pack(expand=True, fill="both", pady=(5, 0))
+
+        canvas = tk.Canvas(list_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+
+        inner.bind(
+            "<Configure>",
+            lambda *_: canvas.configure(scrollregion=canvas.bbox("all")),
         )
-        self.hint.pack(pady=(5, 0))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", expand=True, fill="both")
+        scrollbar.pack(side="right", fill="y")
+
+        canvas.bind_all(
+            "<MouseWheel>",
+            lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
+        )
+
+        defaults = set(arrage.DisplayOnscreen2Vertically)
+        for name, url in self.sites:
+            var = tk.BooleanVar(value=url in defaults)
+            cb = ttk.Checkbutton(inner, text=name, variable=var)
+            cb.pack(anchor="w", pady=2)
+            self.site_vars.append((var, url))
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -67,13 +91,20 @@ class ToggleApp:
         else:
             self.turn_on()
 
+    def selected_urls(self):
+        return [url for var, url in self.site_vars if var.get()]
+
     def turn_on(self):
+        urls = self.selected_urls()
+        if not urls:
+            messagebox.showwarning("No sites selected", "Please check at least one site.")
+            return
         self.set_busy(True)
         self.status.config(text="...", foreground="#d97706")
 
         def work():
             try:
-                hwnds = arrage.open_sites()
+                hwnds = arrage.open_sites(urls)
                 self.root.after(0, self._on_opened, hwnds, None)
             except Exception as e:
                 self.root.after(0, self._on_opened, [], e)

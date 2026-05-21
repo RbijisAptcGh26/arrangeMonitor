@@ -51,6 +51,17 @@ def pick_target_monitor():
     return monitors[1]
 
 
+def pick_monitor_at(index):
+    monitors = get_monitors()
+    if not monitors:
+        raise RuntimeError("No monitors detected")
+    if index < 0 or index >= len(monitors):
+        raise RuntimeError(
+            f"Display {index + 1} not available; only {len(monitors)} detected"
+        )
+    return monitors[index]
+
+
 pick_second_monitor = pick_target_monitor
 
 
@@ -72,39 +83,56 @@ def move_window(hwnd, x, y, w, h):
     win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, w, h, win32con.SWP_SHOWWINDOW)
 
 
-def tile_vertically(monitor, urls):
+def open_chrome_window(url):
     chrome = find_chrome()
-    n = len(urls)
+    before = list_chrome_windows()
+    subprocess.Popen([chrome, f"--app={url}"])
+    for _ in range(40):
+        time.sleep(0.2)
+        diff = list_chrome_windows() - before
+        if diff:
+            return next(iter(diff))
+    return None
+
+
+def tile_hwnds(monitor, hwnds):
+    n = len(hwnds)
+    if n == 0:
+        return
     tile_w = monitor.width
     tile_h = monitor.height // n
+    for i, hwnd in enumerate(hwnds):
+        y = monitor.y + i * tile_h
+        move_window(hwnd, monitor.x, y, tile_w, tile_h)
+
+
+def tile_vertically(monitor, urls):
     opened = []
-
-    for i, url in enumerate(urls):
-        before = list_chrome_windows()
-        subprocess.Popen([chrome, f"--app={url}"])
-
-        new_hwnd = None
-        for _ in range(40):
-            time.sleep(0.2)
-            diff = list_chrome_windows() - before
-            if diff:
-                new_hwnd = next(iter(diff))
-                break
-
-        if new_hwnd is None:
+    for url in urls:
+        hwnd = open_chrome_window(url)
+        if hwnd is None:
             print(f"Warning: could not locate new Chrome window for {url}")
             continue
-
-        y = monitor.y + i * tile_h
-        move_window(new_hwnd, monitor.x, y, tile_w, tile_h)
-        opened.append(new_hwnd)
-
+        opened.append(hwnd)
+    tile_hwnds(monitor, opened)
     return opened
 
 
-def open_sites(urls=None):
-    monitor = pick_target_monitor()
-    return tile_vertically(monitor, urls or DisplayOnscreen2Vertically)
+def open_sites(urls=None, monitor_index=None):
+    if monitor_index is None:
+        monitor = pick_target_monitor()
+    else:
+        monitor = pick_monitor_at(monitor_index)
+    urls = list(urls or DisplayOnscreen2Vertically)
+    opened = {}
+    for url in urls:
+        hwnd = open_chrome_window(url)
+        if hwnd is None:
+            print(f"Warning: could not locate new Chrome window for {url}")
+            continue
+        opened[url] = hwnd
+    tile_hwnds(monitor, list(opened.values()))
+    return opened
 
 
 def close_windows(hwnds):

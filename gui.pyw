@@ -19,7 +19,6 @@ class ToggleApp:
 
         self.hwnds = {}
         self.site_monitor = {}
-        self.display_layouts = {}
         self.is_on = False
         self.busy = False
 
@@ -190,11 +189,6 @@ class ToggleApp:
         enabled = self.is_on and not self.busy and bool(self.hwnds)
         self.refresh_btn.config(state="normal" if enabled else "disabled")
 
-    def _describe_display(self, idx, short=False):
-        layout = self.display_layouts.get(idx)
-        prefix = f"D{idx + 1}" if short else f"Display {idx + 1}"
-        return f"{prefix} ({layout})" if layout else prefix
-
     def _update_sites_label(self):
         total = len(self.sites)
         displayed = len(self.hwnds)
@@ -202,12 +196,9 @@ class ToggleApp:
         if displayed > 0:
             displays_used = sorted(set(self.site_monitor.values()))
             if len(displays_used) == 1:
-                parts.append(self._describe_display(displays_used[0]))
+                parts.append(f"Display {displays_used[0] + 1}")
             else:
-                parts.append(
-                    "Displays "
-                    + ", ".join(self._describe_display(d, short=True) for d in displays_used)
-                )
+                parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
 
     def toggle(self):
@@ -265,20 +256,19 @@ class ToggleApp:
                 by_monitor = {}
                 for url, (hwnd, idx) in opened.items():
                     by_monitor.setdefault(idx, []).append(hwnd)
-                layouts = {}
                 for idx, hwnds in by_monitor.items():
                     try:
                         mon = arrage.pick_monitor_at(idx)
-                        layouts[idx] = arrage.tile_hwnds(mon, hwnds)
+                        arrage.tile_hwnds(mon, hwnds)
                     except Exception as e:
                         print(f"Tile failed for display {idx + 1}: {e}")
-                self.root.after(0, self._on_opened, opened, layouts, None)
+                self.root.after(0, self._on_opened, opened, None)
             except Exception as e:
-                self.root.after(0, self._on_opened, {}, {}, e)
+                self.root.after(0, self._on_opened, {}, e)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _on_opened(self, opened, layouts, err):
+    def _on_opened(self, opened, err):
         self.set_busy(False)
         if err:
             self.status.config(text="Off", foreground="#dc2626")
@@ -286,7 +276,6 @@ class ToggleApp:
             return
         self.hwnds = {url: hwnd for url, (hwnd, _) in opened.items()}
         self.site_monitor = {url: idx for url, (_, idx) in opened.items()}
-        self.display_layouts = dict(layouts)
         self.is_on = True
         self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
         self.status.config(text="On", foreground="#16a34a")
@@ -306,7 +295,6 @@ class ToggleApp:
             self._set_target_radio(url, None)
         self.hwnds = {}
         self.site_monitor = {}
-        self.display_layouts = {}
         self.is_on = False
         self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
         self.status.config(text="Off", foreground="#888")
@@ -400,15 +388,12 @@ class ToggleApp:
         groups = self._hwnds_by_monitor()
         for idx in indices:
             hwnds = groups.get(idx, [])
-            if not hwnds:
-                self.display_layouts.pop(idx, None)
-                continue
             try:
                 mon = arrage.pick_monitor_at(idx)
             except Exception as e:
                 print(f"Retile failed for display {idx + 1}: {e}")
                 continue
-            self.display_layouts[idx] = arrage.tile_hwnds(mon, hwnds)
+            arrage.tile_hwnds(mon, hwnds)
 
     def _retile(self):
         if not self.hwnds:

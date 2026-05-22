@@ -18,17 +18,19 @@ class ToggleApp:
         self.root.minsize(w // 2, h // 2)
 
         self.hwnds = {}
+        self.site_monitor = {}
         self.is_on = False
         self.busy = False
-        self.active_monitor_index = None
 
         self.sites = arrage.load_sites()
         self.site_vars = []
+        self.site_target_vars = {}
 
         try:
-            monitor_count = len(get_monitors())
+            self.monitor_count = len(get_monitors())
         except Exception:
-            monitor_count = 0
+            self.monitor_count = 0
+        monitor_count = self.monitor_count
 
         if monitor_count == 0:
             display_text = "No display detected"
@@ -132,11 +134,14 @@ class ToggleApp:
 
         inner.columnconfigure(0, weight=1)
         inner.columnconfigure(1, weight=0)
+        inner.columnconfigure(2, weight=0)
 
         header_name = ttk.Label(inner, text="Site", font=("Segoe UI", 9, "bold"))
         header_name.grid(row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 4))
         header_disp = ttk.Label(inner, text="Display", font=("Segoe UI", 9, "bold"))
-        header_disp.grid(row=0, column=1, sticky="w", pady=(0, 4))
+        header_disp.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 4))
+        header_target = ttk.Label(inner, text="Open on", font=("Segoe UI", 9, "bold"))
+        header_target.grid(row=0, column=2, sticky="w", pady=(0, 4))
 
         self.site_display_labels = {}
         defaults = set(arrage.DisplayOnscreen2Vertically)
@@ -149,8 +154,26 @@ class ToggleApp:
                 command=lambda u=url: self.on_site_toggle(u),
             )
             cb.grid(row=i, column=0, sticky="w", padx=(0, 12), pady=2)
+
             lbl = ttk.Label(inner, text="—", foreground="#888", width=12)
-            lbl.grid(row=i, column=1, sticky="w", pady=2)
+            lbl.grid(row=i, column=1, sticky="w", padx=(0, 12), pady=2)
+
+            target_var = tk.IntVar(value=-1)
+            self.site_target_vars[url] = target_var
+            radio_cell = ttk.Frame(inner)
+            radio_cell.grid(row=i, column=2, sticky="w", pady=2)
+            for j in range(3):
+                rb = ttk.Radiobutton(
+                    radio_cell,
+                    text=f"D{j + 1}",
+                    variable=target_var,
+                    value=j,
+                    command=lambda u=url: self.on_target_changed(u),
+                )
+                rb.pack(side="left", padx=2)
+                if j >= monitor_count:
+                    rb.state(["disabled"])
+
             self.site_vars.append((var, url))
             self.site_display_labels[url] = lbl
 
@@ -170,8 +193,12 @@ class ToggleApp:
         total = len(self.sites)
         displayed = len(self.hwnds)
         parts = [f"{total} sites", f"{displayed} displayed"]
-        if self.active_monitor_index is not None and displayed > 0:
-            parts.append(f"Display {self.active_monitor_index + 1}")
+        if displayed > 0:
+            displays_used = sorted(set(self.site_monitor.values()))
+            if len(displays_used) == 1:
+                parts.append(f"Display {displays_used[0] + 1}")
+            else:
+                parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
 
     def toggle(self):
@@ -197,6 +224,18 @@ class ToggleApp:
         else:
             lbl.config(text=f"Display {monitor_index + 1}", foreground="#16a34a")
 
+    def _set_target_radio(self, url, monitor_index):
+        var = self.site_target_vars.get(url)
+        if var is None:
+            return
+        var.set(-1 if monitor_index is None else monitor_index)
+
+    def _resolve_target(self, url):
+        per_row = self.site_target_vars[url].get()
+        if 0 <= per_row < self.monitor_count:
+            return per_row
+        return self.target_display.get()
+
     def turn_on(self):
         urls = self.selected_urls()
         if not urls:
@@ -205,30 +244,44 @@ class ToggleApp:
         self.set_busy(True)
         self.status.config(text="...", foreground="#d97706")
 
-        monitor_index = self.target_display.get()
+        site_targets = [(url, self._resolve_target(url)) for url in urls]
 
         def work():
             try:
-                opened = arrage.open_sites(urls, monitor_index=monitor_index)
-                self.root.after(0, self._on_opened, opened, monitor_index, None)
+                opened = {}
+                for url, idx in site_targets:
+                    hwnd = arrage.open_chrome_window(url)
+                    if hwnd is not None:
+                        opened[url] = (hwnd, idx)
+                by_monitor = {}
+                for url, (hwnd, idx) in opened.items():
+                    by_monitor.setdefault(idx, []).append(hwnd)
+                for idx, hwnds in by_monitor.items():
+                    try:
+                        mon = arrage.pick_monitor_at(idx)
+                        arrage.tile_hwnds(mon, hwnds)
+                    except Exception as e:
+                        print(f"Tile failed for display {idx + 1}: {e}")
+                self.root.after(0, self._on_opened, opened, None)
             except Exception as e:
-                self.root.after(0, self._on_opened, {}, monitor_index, e)
+                self.root.after(0, self._on_opened, {}, e)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _on_opened(self, opened, monitor_index, err):
+    def _on_opened(self, opened, err):
         self.set_busy(False)
         if err:
             self.status.config(text="Off", foreground="#dc2626")
             messagebox.showerror("Error", str(err))
             return
-        self.hwnds = dict(opened)
-        self.active_monitor_index = monitor_index
+        self.hwnds = {url: hwnd for url, (hwnd, _) in opened.items()}
+        self.site_monitor = {url: idx for url, (_, idx) in opened.items()}
         self.is_on = True
         self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
         self.status.config(text="On", foreground="#16a34a")
-        for url in self.hwnds:
-            self._set_display_label(url, monitor_index)
+        for url, idx in self.site_monitor.items():
+            self._set_display_label(url, idx)
+            self._set_target_radio(url, idx)
         for var, url in self.site_vars:
             if var.get() and url not in self.hwnds:
                 var.set(False)
@@ -239,8 +292,9 @@ class ToggleApp:
         arrage.close_windows(list(self.hwnds.values()))
         for url in list(self.hwnds.keys()):
             self._set_display_label(url, None)
+            self._set_target_radio(url, None)
         self.hwnds = {}
-        self.active_monitor_index = None
+        self.site_monitor = {}
         self.is_on = False
         self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
         self.status.config(text="Off", foreground="#888")
@@ -253,6 +307,20 @@ class ToggleApp:
         self._retile()
         self.status.config(text="On", foreground="#16a34a")
 
+    def on_target_changed(self, url):
+        if not self.is_on or self.busy:
+            return
+        if url not in self.hwnds:
+            return
+        new_idx = self.site_target_vars[url].get()
+        if new_idx < 0 or new_idx == self.site_monitor.get(url):
+            return
+        old_idx = self.site_monitor[url]
+        self.site_monitor[url] = new_idx
+        self._set_display_label(url, new_idx)
+        self._retile_displays({old_idx, new_idx})
+        self._update_sites_label()
+
     def on_site_toggle(self, url):
         if not self.is_on or self.busy:
             return
@@ -260,29 +328,33 @@ class ToggleApp:
         if var.get():
             if url in self.hwnds:
                 return
+            target = self._resolve_target(url)
             self.set_busy(True)
             self.status.config(text="...", foreground="#d97706")
 
             def work():
                 try:
                     hwnd = arrage.open_chrome_window(url)
-                    self.root.after(0, self._on_site_added, url, hwnd, None)
+                    self.root.after(0, self._on_site_added, url, hwnd, target, None)
                 except Exception as e:
-                    self.root.after(0, self._on_site_added, url, None, e)
+                    self.root.after(0, self._on_site_added, url, None, target, e)
 
             threading.Thread(target=work, daemon=True).start()
         else:
             if url not in self.hwnds:
                 return
             hwnd = self.hwnds.pop(url)
+            old_idx = self.site_monitor.pop(url, None)
             arrage.close_windows([hwnd])
             self._set_display_label(url, None)
-            self._retile()
+            self._set_target_radio(url, None)
+            if old_idx is not None:
+                self._retile_displays({old_idx})
             self.status.config(text="On", foreground="#16a34a")
             self._update_refresh_state()
             self._update_sites_label()
 
-    def _on_site_added(self, url, hwnd, err):
+    def _on_site_added(self, url, hwnd, monitor_index, err):
         self.set_busy(False)
         if err or hwnd is None:
             self._var_for(url).set(False)
@@ -295,20 +367,38 @@ class ToggleApp:
                 )
             return
         self.hwnds[url] = hwnd
-        self._set_display_label(url, self.active_monitor_index)
-        self._retile()
+        self.site_monitor[url] = monitor_index
+        self._set_display_label(url, monitor_index)
+        self._set_target_radio(url, monitor_index)
+        self._retile_displays({monitor_index})
         self.status.config(text="On", foreground="#16a34a")
+        self._update_refresh_state()
         self._update_sites_label()
 
+    def _hwnds_by_monitor(self):
+        groups = {}
+        for url, hwnd in self.hwnds.items():
+            idx = self.site_monitor.get(url)
+            if idx is None:
+                continue
+            groups.setdefault(idx, []).append(hwnd)
+        return groups
+
+    def _retile_displays(self, indices):
+        groups = self._hwnds_by_monitor()
+        for idx in indices:
+            hwnds = groups.get(idx, [])
+            try:
+                mon = arrage.pick_monitor_at(idx)
+            except Exception as e:
+                print(f"Retile failed for display {idx + 1}: {e}")
+                continue
+            arrage.tile_hwnds(mon, hwnds)
+
     def _retile(self):
-        if self.active_monitor_index is None or not self.hwnds:
+        if not self.hwnds:
             return
-        try:
-            monitor = arrage.pick_monitor_at(self.active_monitor_index)
-        except Exception as e:
-            messagebox.showerror("Retile failed", str(e))
-            return
-        arrage.tile_hwnds(monitor, list(self.hwnds.values()))
+        self._retile_displays(set(self.site_monitor.values()))
 
     def on_close(self):
         if self.is_on:

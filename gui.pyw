@@ -313,14 +313,25 @@ class ToggleApp:
             fill = "#16a34a" if is_selected else "#e5e7eb"
             outline = "#15803d" if is_selected else "#9ca3af"
             text_fill = "white" if is_selected else "#374151"
-            canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline=outline, width=1)
+            tag = f"mon-{i}"
+            canvas.create_rectangle(
+                x0, y0, x1, y1, fill=fill, outline=outline, width=1, tags=(tag,)
+            )
             canvas.create_text(
                 (x0 + x1) / 2,
                 (y0 + y1) / 2,
                 text=str(i + 1),
                 fill=text_fill,
                 font=("Segoe UI", 10, "bold"),
+                tags=(tag,),
             )
+            canvas.tag_bind(tag, "<Button-1>", lambda *_, idx=i: self._select_monitor(idx))
+            canvas.tag_bind(tag, "<Enter>", lambda *_: canvas.config(cursor="hand2"))
+            canvas.tag_bind(tag, "<Leave>", lambda *_: canvas.config(cursor=""))
+
+    def _select_monitor(self, idx):
+        if 0 <= idx < self.monitor_count:
+            self.target_display.set(idx)
 
     def set_busy(self, busy):
         self.busy = busy

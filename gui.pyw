@@ -107,8 +107,9 @@ class ToggleApp:
         )
         self.status.pack(pady=(5, 10))
 
-        list_frame = ttk.LabelFrame(container, text=f"{len(self.sites)} Sites", padding=10)
-        list_frame.pack(expand=True, fill="both", pady=(5, 0))
+        self.list_frame = ttk.LabelFrame(container, text="", padding=10)
+        self.list_frame.pack(expand=True, fill="both", pady=(5, 0))
+        list_frame = self.list_frame
 
         canvas = tk.Canvas(list_frame, highlightthickness=0)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
@@ -153,6 +154,7 @@ class ToggleApp:
             self.site_vars.append((var, url))
             self.site_display_labels[url] = lbl
 
+        self._update_sites_label()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def set_busy(self, busy):
@@ -163,6 +165,14 @@ class ToggleApp:
     def _update_refresh_state(self):
         enabled = self.is_on and not self.busy and bool(self.hwnds)
         self.refresh_btn.config(state="normal" if enabled else "disabled")
+
+    def _update_sites_label(self):
+        total = len(self.sites)
+        displayed = len(self.hwnds)
+        parts = [f"{total} sites", f"{displayed} displayed"]
+        if self.active_monitor_index is not None and displayed > 0:
+            parts.append(f"Display {self.active_monitor_index + 1}")
+        self.list_frame.config(text=" | ".join(parts))
 
     def toggle(self):
         if self.busy:
@@ -223,6 +233,7 @@ class ToggleApp:
             if var.get() and url not in self.hwnds:
                 var.set(False)
         self._update_refresh_state()
+        self._update_sites_label()
 
     def turn_off(self):
         arrage.close_windows(list(self.hwnds.values()))
@@ -234,6 +245,7 @@ class ToggleApp:
         self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
         self.status.config(text="Off", foreground="#888")
         self._update_refresh_state()
+        self._update_sites_label()
 
     def refresh(self):
         if not self.is_on or self.busy or not self.hwnds:
@@ -268,6 +280,7 @@ class ToggleApp:
             self._retile()
             self.status.config(text="On", foreground="#16a34a")
             self._update_refresh_state()
+            self._update_sites_label()
 
     def _on_site_added(self, url, hwnd, err):
         self.set_busy(False)
@@ -285,6 +298,7 @@ class ToggleApp:
         self._set_display_label(url, self.active_monitor_index)
         self._retile()
         self.status.config(text="On", foreground="#16a34a")
+        self._update_sites_label()
 
     def _retile(self):
         if self.active_monitor_index is None or not self.hwnds:

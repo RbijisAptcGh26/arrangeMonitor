@@ -26,6 +26,12 @@ def load_sites(path=SITES_FILE):
             sites.append((name.strip(), url.strip()))
     return sites
 
+
+def save_sites(sites, path=SITES_FILE):
+    with open(path, "w", encoding="utf-8") as f:
+        for name, url in sites:
+            f.write(f"{name} | {url}\n")
+
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",

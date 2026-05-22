@@ -65,8 +65,11 @@ class ToggleApp:
             if i >= monitor_count:
                 rb.state(["disabled"])
 
+        button_row = ttk.Frame(container)
+        button_row.pack(pady=(10, 10))
+
         self.toggle_btn = tk.Button(
-            container,
+            button_row,
             text="On",
             font=("Segoe UI", 28, "bold"),
             width=10,
@@ -78,7 +81,23 @@ class ToggleApp:
             command=self.toggle,
             cursor="hand2",
         )
-        self.toggle_btn.pack(pady=(10, 10))
+        self.toggle_btn.pack(side="left", padx=(0, 10))
+
+        self.refresh_btn = tk.Button(
+            button_row,
+            text="Refresh",
+            font=("Segoe UI", 12, "bold"),
+            width=10,
+            height=2,
+            bg="#e5e7eb",
+            fg="#374151",
+            relief="flat",
+            activebackground="#d1d5db",
+            command=self.refresh,
+            cursor="hand2",
+            state="disabled",
+        )
+        self.refresh_btn.pack(side="left")
 
         self.status = ttk.Label(
             container,
@@ -88,7 +107,7 @@ class ToggleApp:
         )
         self.status.pack(pady=(5, 10))
 
-        list_frame = ttk.LabelFrame(container, text="Sites", padding=10)
+        list_frame = ttk.LabelFrame(container, text=f"{len(self.sites)} Sites", padding=10)
         list_frame.pack(expand=True, fill="both", pady=(5, 0))
 
         canvas = tk.Canvas(list_frame, highlightthickness=0)
@@ -139,6 +158,11 @@ class ToggleApp:
     def set_busy(self, busy):
         self.busy = busy
         self.toggle_btn.config(state="disabled" if busy else "normal")
+        self._update_refresh_state()
+
+    def _update_refresh_state(self):
+        enabled = self.is_on and not self.busy and bool(self.hwnds)
+        self.refresh_btn.config(state="normal" if enabled else "disabled")
 
     def toggle(self):
         if self.busy:
@@ -198,6 +222,7 @@ class ToggleApp:
         for var, url in self.site_vars:
             if var.get() and url not in self.hwnds:
                 var.set(False)
+        self._update_refresh_state()
 
     def turn_off(self):
         arrage.close_windows(list(self.hwnds.values()))
@@ -208,6 +233,13 @@ class ToggleApp:
         self.is_on = False
         self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
         self.status.config(text="Off", foreground="#888")
+        self._update_refresh_state()
+
+    def refresh(self):
+        if not self.is_on or self.busy or not self.hwnds:
+            return
+        self._retile()
+        self.status.config(text="On", foreground="#16a34a")
 
     def on_site_toggle(self, url):
         if not self.is_on or self.busy:
@@ -235,6 +267,7 @@ class ToggleApp:
             self._set_display_label(url, None)
             self._retile()
             self.status.config(text="On", foreground="#16a34a")
+            self._update_refresh_state()
 
     def _on_site_added(self, url, hwnd, err):
         self.set_busy(False)

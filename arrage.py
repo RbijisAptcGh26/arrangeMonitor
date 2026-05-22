@@ -95,15 +95,45 @@ def open_chrome_window(url):
     return None
 
 
+SNAP_LAYOUTS = {
+    1: ("Full", [(0.0, 0.0, 1.0, 1.0)]),
+    2: ("Side by side", [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 0.5, 1.0)]),
+    3: (
+        "Left + 2 stacked",
+        [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)],
+    ),
+    4: (
+        "2x2 grid",
+        [
+            (0.0, 0.0, 0.5, 0.5),
+            (0.5, 0.0, 0.5, 0.5),
+            (0.0, 0.5, 0.5, 0.5),
+            (0.5, 0.5, 0.5, 0.5),
+        ],
+    ),
+}
+
+
 def tile_hwnds(monitor, hwnds):
     n = len(hwnds)
     if n == 0:
-        return
+        return None
+    layout = SNAP_LAYOUTS.get(n)
+    if layout is not None:
+        name, rects = layout
+        for hwnd, (xr, yr, wr, hr) in zip(hwnds, rects):
+            x = monitor.x + int(monitor.width * xr)
+            y = monitor.y + int(monitor.height * yr)
+            w = int(monitor.width * wr)
+            h = int(monitor.height * hr)
+            move_window(hwnd, x, y, w, h)
+        return name
     tile_w = monitor.width
     tile_h = monitor.height // n
     for i, hwnd in enumerate(hwnds):
         y = monitor.y + i * tile_h
         move_window(hwnd, monitor.x, y, tile_w, tile_h)
+    return "Vertical"
 
 
 def tile_vertically(monitor, urls):

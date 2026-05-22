@@ -290,7 +290,8 @@ class ToggleApp:
 
     def turn_off(self):
         arrage.close_windows(list(self.hwnds.values()))
-        for url in list(self.hwnds.keys()):
+        for var, url in self.site_vars:
+            var.set(False)
             self._set_display_label(url, None)
             self._set_target_radio(url, None)
         self.hwnds = {}

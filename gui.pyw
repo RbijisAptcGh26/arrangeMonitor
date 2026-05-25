@@ -23,9 +23,11 @@ class ToggleApp:
         self.busy = False
 
         self.sites = arrage.load_sites()
+        self.settings = arrage.load_settings()
+        self._row_settings = self.settings.get("rows", {}) if isinstance(self.settings.get("rows"), dict) else {}
         self.rows = []
         self._next_row_id = 0
-        self.show_address_var = tk.BooleanVar(value=False)
+        self.show_address_var = tk.BooleanVar(value=bool(self.settings.get("show_address", False)))
         self._defaults = set(arrage.DisplayOnscreen2Vertically)
         self._edit_snapshot = None
         self.browsers = arrage.detect_browsers()
@@ -56,6 +58,9 @@ class ToggleApp:
         self.display_info.pack(pady=(0, 5))
 
         default_index = 1 if monitor_count >= 2 else 0
+        saved_target = self.settings.get("target_display")
+        if isinstance(saved_target, int) and 0 <= saved_target < max(monitor_count, 1):
+            default_index = saved_target
         self.target_display = tk.IntVar(value=default_index)
 
         radio_frame = ttk.Frame(container)
@@ -217,14 +222,31 @@ class ToggleApp:
         else:
             self._next_row_id = max(self._next_row_id, row_id + 1)
 
-        check_var = tk.BooleanVar(value=url in self._defaults)
+        saved = self._row_settings.get(url, {}) if url else {}
+        if "checked" in saved:
+            initial_checked = bool(saved.get("checked"))
+        else:
+            initial_checked = url in self._defaults
+        saved_browsers = saved.get("browsers")
+        saved_target = saved.get("target")
+
+        check_var = tk.BooleanVar(value=initial_checked)
         name_var = tk.StringVar(value=name)
         url_var = tk.StringVar(value=url)
-        target_var = tk.IntVar(value=-1)
-        browser_vars = {
-            b["name"]: tk.BooleanVar(value=(b is self.browsers[0]))
-            for b in self.browsers
-        }
+        target_var = tk.IntVar(
+            value=saved_target if isinstance(saved_target, int) and 0 <= saved_target < self.monitor_count else -1
+        )
+        if isinstance(saved_browsers, list) and self.browsers:
+            saved_set = set(saved_browsers)
+            browser_vars = {
+                b["name"]: tk.BooleanVar(value=(b["name"] in saved_set))
+                for b in self.browsers
+            }
+        else:
+            browser_vars = {
+                b["name"]: tk.BooleanVar(value=(b is self.browsers[0]))
+                for b in self.browsers
+            }
 
         cb = ttk.Checkbutton(
             self.inner,
@@ -898,7 +920,29 @@ class ToggleApp:
             foreground="#16a34a",
         )
 
+    def _collect_settings(self):
+        rows = {}
+        for r in self.rows:
+            url = r["url_var"].get().strip()
+            if not url:
+                continue
+            target = r["target_var"].get()
+            rows[url] = {
+                "checked": bool(r["check_var"].get()),
+                "browsers": [name for name, var in r.get("browser_vars", {}).items() if var.get()],
+                "target": target if 0 <= target < self.monitor_count else -1,
+            }
+        return {
+            "target_display": int(self.target_display.get()),
+            "show_address": bool(self.show_address_var.get()),
+            "rows": rows,
+        }
+
     def on_close(self):
+        try:
+            arrage.save_settings(self._collect_settings())
+        except Exception as e:
+            print(f"Failed to save settings: {e}")
         if self.is_on:
             all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
             arrage.close_windows(all_hwnds)

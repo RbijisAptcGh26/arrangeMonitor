@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import time
@@ -7,6 +8,7 @@ import win32gui
 from screeninfo import get_monitors
 
 SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites.txt")
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 DisplayOnscreen2Vertically = [
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login",
@@ -31,6 +33,20 @@ def save_sites(sites, path=SITES_FILE):
     with open(path, "w", encoding="utf-8") as f:
         for name, url in sites:
             f.write(f"{name} | {url}\n")
+
+
+def load_settings(path=SETTINGS_FILE):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_settings(data, path=SETTINGS_FILE):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

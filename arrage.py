@@ -45,6 +45,97 @@ def find_chrome():
     raise FileNotFoundError("Chrome not found in standard install locations")
 
 
+BROWSER_CANDIDATES = [
+    {
+        "name": "Chrome",
+        "short": "Chr",
+        "paths": [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ],
+        "win_class": "Chrome_WidgetWin_1",
+        "app_mode": True,
+    },
+    {
+        "name": "Edge",
+        "short": "Edg",
+        "paths": [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ],
+        "win_class": "Chrome_WidgetWin_1",
+        "app_mode": True,
+    },
+    {
+        "name": "Brave",
+        "short": "Brv",
+        "paths": [
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        ],
+        "win_class": "Chrome_WidgetWin_1",
+        "app_mode": True,
+    },
+    {
+        "name": "Opera",
+        "short": "Opr",
+        "paths": [
+            r"C:\Program Files\Opera\opera.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera\opera.exe"),
+        ],
+        "win_class": "Chrome_WidgetWin_1",
+        "app_mode": True,
+    },
+    {
+        "name": "Firefox",
+        "short": "Fir",
+        "paths": [
+            r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+        ],
+        "win_class": "MozillaWindowClass",
+        "app_mode": False,
+    },
+]
+
+
+def detect_browsers():
+    found = []
+    for spec in BROWSER_CANDIDATES:
+        for p in spec["paths"]:
+            if p and os.path.exists(p):
+                found.append({**spec, "path": p})
+                break
+    return found
+
+
+def list_browser_windows(win_class):
+    handles = []
+
+    def cb(hwnd, _):
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        if win32gui.GetClassName(hwnd) == win_class:
+            handles.append(hwnd)
+
+    win32gui.EnumWindows(cb, None)
+    return set(handles)
+
+
+def open_browser_window(browser, url):
+    before = list_browser_windows(browser["win_class"])
+    if browser.get("app_mode"):
+        subprocess.Popen([browser["path"], f"--app={url}"])
+    else:
+        subprocess.Popen([browser["path"], url])
+    for _ in range(40):
+        time.sleep(0.2)
+        diff = list_browser_windows(browser["win_class"]) - before
+        if diff:
+            return next(iter(diff))
+    return None
+
+
 def pick_target_monitor():
     monitors = get_monitors()
     if not monitors:

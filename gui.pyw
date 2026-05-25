@@ -27,6 +27,9 @@ class ToggleApp:
         self._next_row_id = 0
         self.show_address_var = tk.BooleanVar(value=False)
         self._defaults = set(arrage.DisplayOnscreen2Vertically)
+        self._edit_snapshot = None
+        self.browsers = arrage.detect_browsers()
+        self._default_browser = self.browsers[0]["name"] if self.browsers else ""
 
         try:
             self.monitor_count = len(get_monitors())
@@ -151,7 +154,6 @@ class ToggleApp:
             width=3,
             command=self.on_add_row,
         )
-        self.add_btn.pack(side="left")
 
         self.canvas = tk.Canvas(list_frame, highlightthickness=0)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.canvas.yview)
@@ -181,21 +183,24 @@ class ToggleApp:
         inner.columnconfigure(1, weight=0)
         inner.columnconfigure(2, weight=0)
         inner.columnconfigure(3, weight=0)
-        inner.columnconfigure(4, weight=1)
-        inner.columnconfigure(5, weight=0)
+        inner.columnconfigure(4, weight=0)
+        inner.columnconfigure(5, weight=1)
+        inner.columnconfigure(6, weight=0)
 
         header_check = ttk.Label(inner, text="", font=("Segoe UI", 9, "bold"))
         header_check.grid(row=0, column=0, padx=(0, 6), pady=(0, 4))
         header_name = ttk.Label(inner, text="Site", font=("Segoe UI", 9, "bold"))
         header_name.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 4))
+        header_browser = ttk.Label(inner, text="Browser", font=("Segoe UI", 9, "bold"))
+        header_browser.grid(row=0, column=2, sticky="w", padx=(0, 12), pady=(0, 4))
         header_disp = ttk.Label(inner, text="Display", font=("Segoe UI", 9, "bold"))
-        header_disp.grid(row=0, column=2, sticky="w", padx=(0, 12), pady=(0, 4))
+        header_disp.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 4))
         header_target = ttk.Label(inner, text="Open on", font=("Segoe UI", 9, "bold"))
-        header_target.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 4))
+        header_target.grid(row=0, column=4, sticky="w", padx=(0, 12), pady=(0, 4))
         self.header_addr = ttk.Label(inner, text="Address", font=("Segoe UI", 9, "bold"))
-        self.header_addr.grid(row=0, column=4, sticky="w", padx=(0, 12), pady=(0, 4))
+        self.header_addr.grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(0, 4))
         self.header_del = ttk.Label(inner, text="", font=("Segoe UI", 9, "bold"))
-        self.header_del.grid(row=0, column=5, sticky="w", pady=(0, 4))
+        self.header_del.grid(row=0, column=6, sticky="w", pady=(0, 4))
 
         for name, url in self.sites:
             self._make_row(name, url)
@@ -205,14 +210,18 @@ class ToggleApp:
         self._update_sites_label()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def _make_row(self, name, url):
-        row_id = self._next_row_id
-        self._next_row_id += 1
+    def _make_row(self, name, url, row_id=None):
+        if row_id is None:
+            row_id = self._next_row_id
+            self._next_row_id += 1
+        else:
+            self._next_row_id = max(self._next_row_id, row_id + 1)
 
         check_var = tk.BooleanVar(value=url in self._defaults)
         name_var = tk.StringVar(value=name)
         url_var = tk.StringVar(value=url)
         target_var = tk.IntVar(value=-1)
+        browser_var = tk.StringVar(value=self._default_browser)
 
         cb = ttk.Checkbutton(
             self.inner,
@@ -220,6 +229,14 @@ class ToggleApp:
             command=lambda rid=row_id: self.on_site_toggle(rid),
         )
         name_entry = ttk.Entry(self.inner, textvariable=name_var, width=22, state="readonly")
+
+        browser_cell = ttk.Frame(self.inner)
+        if self.browsers:
+            for b in self.browsers:
+                self._make_browser_icon(browser_cell, b, browser_var)
+        else:
+            ttk.Label(browser_cell, text="—", foreground="#888").pack(side="left")
+
         display_lbl = ttk.Label(self.inner, text="—", foreground="#888", width=12)
 
         radio_cell = ttk.Frame(self.inner)
@@ -249,10 +266,12 @@ class ToggleApp:
             "url_var": url_var,
             "check_var": check_var,
             "target_var": target_var,
+            "browser_var": browser_var,
             "display_lbl": display_lbl,
             "addr_entry": addr_entry,
             "name_entry": name_entry,
             "cb": cb,
+            "browser_cell": browser_cell,
             "radio_cell": radio_cell,
             "del_btn": del_btn,
         }
@@ -264,10 +283,11 @@ class ToggleApp:
             grid_row = i + 1
             row["cb"].grid(row=grid_row, column=0, padx=(0, 6), pady=2)
             row["name_entry"].grid(row=grid_row, column=1, sticky="ew", padx=(0, 12), pady=2)
-            row["display_lbl"].grid(row=grid_row, column=2, sticky="w", padx=(0, 12), pady=2)
-            row["radio_cell"].grid(row=grid_row, column=3, sticky="w", padx=(0, 12), pady=2)
-            row["addr_entry"].grid(row=grid_row, column=4, sticky="ew", padx=(0, 12), pady=2)
-            row["del_btn"].grid(row=grid_row, column=5, sticky="w", pady=2)
+            row["browser_cell"].grid(row=grid_row, column=2, sticky="w", padx=(0, 12), pady=2)
+            row["display_lbl"].grid(row=grid_row, column=3, sticky="w", padx=(0, 12), pady=2)
+            row["radio_cell"].grid(row=grid_row, column=4, sticky="w", padx=(0, 12), pady=2)
+            row["addr_entry"].grid(row=grid_row, column=5, sticky="ew", padx=(0, 12), pady=2)
+            row["del_btn"].grid(row=grid_row, column=6, sticky="w", pady=2)
 
     def _row(self, row_id):
         for r in self.rows:
@@ -333,6 +353,72 @@ class ToggleApp:
         if 0 <= idx < self.monitor_count:
             self.target_display.set(idx)
 
+    def _make_browser_icon(self, parent, browser, var):
+        size = 22
+        try:
+            bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
+        except Exception:
+            bg = "#f0f0f0"
+        canvas = tk.Canvas(
+            parent,
+            width=size,
+            height=size,
+            highlightthickness=0,
+            bg=bg,
+            cursor="hand2",
+        )
+        canvas.pack(side="left", padx=2)
+
+        def draw(*_):
+            canvas.delete("all")
+            selected = var.get() == browser["name"]
+            if selected:
+                canvas.create_rectangle(
+                    0, 0, size - 1, size - 1, outline="#16a34a", width=2
+                )
+            self._draw_browser_glyph(canvas, browser["name"], size, bg)
+
+        canvas.bind("<Button-1>", lambda *_: var.set(browser["name"]))
+        var.trace_add("write", draw)
+        draw()
+        return canvas
+
+    def _draw_browser_glyph(self, canvas, name, size, bg):
+        cx = cy = size / 2
+        if name == "Chrome":
+            canvas.create_arc(3, 3, size - 3, size - 3, start=60, extent=120,
+                              fill="#EA4335", outline="")
+            canvas.create_arc(3, 3, size - 3, size - 3, start=180, extent=120,
+                              fill="#34A853", outline="")
+            canvas.create_arc(3, 3, size - 3, size - 3, start=300, extent=120,
+                              fill="#FBBC04", outline="")
+            canvas.create_oval(cx - 3, cy - 3, cx + 3, cy + 3,
+                               fill="#4285F4", outline="white", width=1)
+        elif name == "Edge":
+            canvas.create_oval(3, 3, size - 3, size - 3, fill="#0078D7", outline="")
+            canvas.create_arc(6, 6, size - 6, size - 6, start=20, extent=200,
+                              style="arc", outline="white", width=2)
+        elif name == "Firefox":
+            canvas.create_oval(3, 3, size - 3, size - 3, fill="#FF7139", outline="")
+            canvas.create_oval(cx - 3, cy - 3, cx + 3, cy + 3,
+                               fill="#0060DF", outline="")
+        elif name == "Brave":
+            points = [cx, 3, size - 3, 7, size - 5, size - 4,
+                      cx, size - 3, 5, size - 4, 3, 7]
+            canvas.create_polygon(points, fill="#FB542B", outline="")
+            canvas.create_polygon(
+                [cx, 8, cx + 3, 11, cx + 1, size - 7, cx, size - 6,
+                 cx - 1, size - 7, cx - 3, 11],
+                fill="#ffffff", outline="",
+            )
+        elif name == "Opera":
+            canvas.create_oval(3, 3, size - 3, size - 3, fill="#FF1B2D", outline="")
+            canvas.create_oval(cx - 2, 6, cx + 2, size - 6, fill=bg, outline="")
+        else:
+            canvas.create_oval(3, 3, size - 3, size - 3, fill="#9ca3af", outline="")
+            canvas.create_text(cx, cy, text=name[:1], fill="white",
+                               font=("Segoe UI", 8, "bold"))
+
     def set_busy(self, busy):
         self.busy = busy
         self.toggle_btn.config(state="disabled" if busy else "normal")
@@ -344,6 +430,11 @@ class ToggleApp:
 
     def _apply_address_visibility(self):
         show = self.show_address_var.get()
+        if show and self._edit_snapshot is None:
+            self._take_edit_snapshot()
+        elif not show and self._edit_snapshot is not None:
+            self._revert_to_snapshot()
+            self._edit_snapshot = None
         widgets = [
             self.header_addr,
             self.header_del,
@@ -360,8 +451,42 @@ class ToggleApp:
             row["name_entry"].config(state=name_state)
         if show:
             self.save_btn.pack(side="right")
+            self.add_btn.pack(side="left")
         else:
             self.save_btn.pack_forget()
+            self.add_btn.pack_forget()
+
+    def _take_edit_snapshot(self):
+        self._edit_snapshot = [
+            (r["row_id"], r["name_var"].get(), r["url_var"].get())
+            for r in self.rows
+        ]
+
+    def _revert_to_snapshot(self):
+        snapshot = self._edit_snapshot or []
+        snapshot_ids = {rid for rid, _, _ in snapshot}
+        current_ids = {r["row_id"] for r in self.rows}
+
+        for row in list(self.rows):
+            if row["row_id"] not in snapshot_ids:
+                self._destroy_row(row)
+
+        rows_by_id = {r["row_id"]: r for r in self.rows}
+        for rid, name, url in snapshot:
+            if rid in rows_by_id:
+                rows_by_id[rid]["name_var"].set(name)
+                rows_by_id[rid]["url_var"].set(url)
+
+        for rid, name, url in snapshot:
+            if rid not in current_ids:
+                self._make_row(name, url, row_id=rid)
+
+        rows_by_id = {r["row_id"]: r for r in self.rows}
+        self.rows = [rows_by_id[rid] for rid, _, _ in snapshot if rid in rows_by_id]
+
+        self._reflow_grid()
+        self._update_refresh_state()
+        self._update_sites_label()
 
     def _update_sites_label(self):
         total = len(self.rows)
@@ -417,6 +542,16 @@ class ToggleApp:
             return per_row
         return self.target_display.get()
 
+    def _browser_for(self, row_id):
+        row = self._row(row_id)
+        if row is None or not self.browsers:
+            return None
+        name = row["browser_var"].get()
+        for b in self.browsers:
+            if b["name"] == name:
+                return b
+        return self.browsers[0]
+
     def turn_on(self):
         row_ids = self._selected_row_ids()
         if not row_ids:
@@ -426,16 +561,17 @@ class ToggleApp:
         self.status.config(text="...", foreground="#d97706")
 
         site_targets = [
-            (rid, self._url_of(rid), self._resolve_target(rid)) for rid in row_ids
+            (rid, self._url_of(rid), self._resolve_target(rid), self._browser_for(rid))
+            for rid in row_ids
         ]
 
         def work():
             try:
                 opened = {}
-                for rid, url, mon_idx in site_targets:
-                    if not url:
+                for rid, url, mon_idx, browser in site_targets:
+                    if not url or browser is None:
                         continue
-                    hwnd = arrage.open_chrome_window(url)
+                    hwnd = arrage.open_browser_window(browser, url)
                     if hwnd is not None:
                         opened[rid] = (hwnd, mon_idx)
                 by_monitor = {}
@@ -523,13 +659,18 @@ class ToggleApp:
             if not url:
                 row["check_var"].set(False)
                 return
+            browser = self._browser_for(row_id)
+            if browser is None:
+                row["check_var"].set(False)
+                messagebox.showwarning("No browser", "No supported browser detected on this system.")
+                return
             target = self._resolve_target(row_id)
             self.set_busy(True)
             self.status.config(text="...", foreground="#d97706")
 
             def work():
                 try:
-                    hwnd = arrage.open_chrome_window(url)
+                    hwnd = arrage.open_browser_window(browser, url)
                     self.root.after(0, self._on_site_added, row_id, hwnd, target, None)
                 except Exception as e:
                     self.root.after(0, self._on_site_added, row_id, None, target, e)
@@ -588,22 +729,31 @@ class ToggleApp:
         self.canvas.update_idletasks()
         self.canvas.yview_moveto(1.0)
 
-    def on_delete(self, row_id):
-        row = self._row(row_id)
-        if row is None:
-            return
+    def _destroy_row(self, row):
+        row_id = row["row_id"]
+        retile_idx = None
         if row_id in self.hwnds:
             hwnd = self.hwnds.pop(row_id)
-            old_idx = self.site_monitor.pop(row_id, None)
-            arrage.close_windows([hwnd])
-            if old_idx is not None:
-                self._retile_displays({old_idx})
-        for key in ("cb", "name_entry", "display_lbl", "radio_cell", "addr_entry", "del_btn"):
+            retile_idx = self.site_monitor.pop(row_id, None)
+            try:
+                arrage.close_windows([hwnd])
+            except Exception:
+                pass
+        for key in ("cb", "name_entry", "browser_cell", "display_lbl", "radio_cell", "addr_entry", "del_btn"):
             try:
                 row[key].destroy()
             except Exception:
                 pass
-        self.rows.remove(row)
+        if row in self.rows:
+            self.rows.remove(row)
+        if retile_idx is not None:
+            self._retile_displays({retile_idx})
+
+    def on_delete(self, row_id):
+        row = self._row(row_id)
+        if row is None:
+            return
+        self._destroy_row(row)
         self._reflow_grid()
         self._update_refresh_state()
         self._update_sites_label()
@@ -634,19 +784,28 @@ class ToggleApp:
         self._retile_displays(set(self.site_monitor.values()))
 
     def save_sites(self):
-        edited = []
-        for row in self.rows:
+        for row in list(self.rows):
             name = row["name_var"].get().strip()
             url = row["url_var"].get().strip()
-            if not name and not url:
-                continue
-            edited.append((name, url))
+            if not name or not url:
+                self._destroy_row(row)
+        self._reflow_grid()
+
+        edited = [
+            (r["name_var"].get().strip(), r["url_var"].get().strip())
+            for r in self.rows
+        ]
         try:
             arrage.save_sites(edited)
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return
         self.sites = edited
+        if self.show_address_var.get():
+            self._take_edit_snapshot()
+        else:
+            self._edit_snapshot = None
+        self._update_refresh_state()
         self._update_sites_label()
         self.status.config(
             text="Saved" if not self.is_on else "On",

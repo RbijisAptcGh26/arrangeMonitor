@@ -221,7 +221,10 @@ class ToggleApp:
         name_var = tk.StringVar(value=name)
         url_var = tk.StringVar(value=url)
         target_var = tk.IntVar(value=-1)
-        browser_var = tk.StringVar(value=self._default_browser)
+        browser_vars = {
+            b["name"]: tk.BooleanVar(value=(b is self.browsers[0]))
+            for b in self.browsers
+        }
 
         cb = ttk.Checkbutton(
             self.inner,
@@ -233,7 +236,7 @@ class ToggleApp:
         browser_cell = ttk.Frame(self.inner)
         if self.browsers:
             for b in self.browsers:
-                self._make_browser_icon(browser_cell, b, browser_var)
+                self._make_browser_icon(browser_cell, b, browser_vars[b["name"]], row_id)
         else:
             ttk.Label(browser_cell, text="—", foreground="#888").pack(side="left")
 
@@ -266,7 +269,7 @@ class ToggleApp:
             "url_var": url_var,
             "check_var": check_var,
             "target_var": target_var,
-            "browser_var": browser_var,
+            "browser_vars": browser_vars,
             "display_lbl": display_lbl,
             "addr_entry": addr_entry,
             "name_entry": name_entry,
@@ -353,7 +356,7 @@ class ToggleApp:
         if 0 <= idx < self.monitor_count:
             self.target_display.set(idx)
 
-    def _make_browser_icon(self, parent, browser, var):
+    def _make_browser_icon(self, parent, browser, var, row_id):
         size = 22
         try:
             bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
@@ -371,14 +374,18 @@ class ToggleApp:
 
         def draw(*_):
             canvas.delete("all")
-            selected = var.get() == browser["name"]
-            if selected:
+            if var.get():
                 canvas.create_rectangle(
                     0, 0, size - 1, size - 1, outline="#16a34a", width=2
                 )
             self._draw_browser_glyph(canvas, browser["name"], size, bg)
 
-        canvas.bind("<Button-1>", lambda *_: var.set(browser["name"]))
+        def on_click(*_):
+            new_state = not var.get()
+            var.set(new_state)
+            self.on_browser_toggled(row_id, browser, new_state)
+
+        canvas.bind("<Button-1>", on_click)
         var.trace_add("write", draw)
         draw()
         return canvas
@@ -542,15 +549,12 @@ class ToggleApp:
             return per_row
         return self.target_display.get()
 
-    def _browser_for(self, row_id):
+    def _browsers_for(self, row_id):
         row = self._row(row_id)
         if row is None or not self.browsers:
-            return None
-        name = row["browser_var"].get()
-        for b in self.browsers:
-            if b["name"] == name:
-                return b
-        return self.browsers[0]
+            return []
+        vars_map = row.get("browser_vars", {})
+        return [b for b in self.browsers if vars_map.get(b["name"]) and vars_map[b["name"]].get()]
 
     def turn_on(self):
         row_ids = self._selected_row_ids()
@@ -561,22 +565,26 @@ class ToggleApp:
         self.status.config(text="...", foreground="#d97706")
 
         site_targets = [
-            (rid, self._url_of(rid), self._resolve_target(rid), self._browser_for(rid))
+            (rid, self._url_of(rid), self._resolve_target(rid), self._browsers_for(rid))
             for rid in row_ids
         ]
 
         def work():
             try:
                 opened = {}
-                for rid, url, mon_idx, browser in site_targets:
-                    if not url or browser is None:
+                for rid, url, mon_idx, browsers in site_targets:
+                    if not url or not browsers:
                         continue
-                    hwnd = arrage.open_browser_window(browser, url)
-                    if hwnd is not None:
-                        opened[rid] = (hwnd, mon_idx)
+                    per_row = {}
+                    for browser in browsers:
+                        hwnd = arrage.open_browser_window(browser, url)
+                        if hwnd is not None:
+                            per_row[browser["name"]] = hwnd
+                    if per_row:
+                        opened[rid] = (per_row, mon_idx)
                 by_monitor = {}
-                for rid, (hwnd, mon_idx) in opened.items():
-                    by_monitor.setdefault(mon_idx, []).append(hwnd)
+                for rid, (per_row, mon_idx) in opened.items():
+                    by_monitor.setdefault(mon_idx, []).extend(per_row.values())
                 for mon_idx, hwnds in by_monitor.items():
                     try:
                         mon = arrage.pick_monitor_at(mon_idx)
@@ -595,7 +603,7 @@ class ToggleApp:
             self.status.config(text="Off", foreground="#dc2626")
             messagebox.showerror("Error", str(err))
             return
-        self.hwnds = {rid: hwnd for rid, (hwnd, _) in opened.items()}
+        self.hwnds = {rid: dict(per_row) for rid, (per_row, _) in opened.items()}
         self.site_monitor = {rid: mon_idx for rid, (_, mon_idx) in opened.items()}
         self.is_on = True
         self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
@@ -610,7 +618,8 @@ class ToggleApp:
         self._update_sites_label()
 
     def turn_off(self):
-        arrage.close_windows(list(self.hwnds.values()))
+        all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
+        arrage.close_windows(all_hwnds)
         for row in self.rows:
             row["check_var"].set(False)
             self._set_display_label(row["row_id"], None)
@@ -659,10 +668,10 @@ class ToggleApp:
             if not url:
                 row["check_var"].set(False)
                 return
-            browser = self._browser_for(row_id)
-            if browser is None:
+            browsers = self._browsers_for(row_id)
+            if not browsers:
                 row["check_var"].set(False)
-                messagebox.showwarning("No browser", "No supported browser detected on this system.")
+                messagebox.showwarning("No browser", "Select at least one browser for this site.")
                 return
             target = self._resolve_target(row_id)
             self.set_busy(True)
@@ -670,18 +679,22 @@ class ToggleApp:
 
             def work():
                 try:
-                    hwnd = arrage.open_browser_window(browser, url)
-                    self.root.after(0, self._on_site_added, row_id, hwnd, target, None)
+                    per_row = {}
+                    for browser in browsers:
+                        hwnd = arrage.open_browser_window(browser, url)
+                        if hwnd is not None:
+                            per_row[browser["name"]] = hwnd
+                    self.root.after(0, self._on_site_added, row_id, per_row, target, None)
                 except Exception as e:
-                    self.root.after(0, self._on_site_added, row_id, None, target, e)
+                    self.root.after(0, self._on_site_added, row_id, {}, target, e)
 
             threading.Thread(target=work, daemon=True).start()
         else:
             if row_id not in self.hwnds:
                 return
-            hwnd = self.hwnds.pop(row_id)
+            per_row = self.hwnds.pop(row_id)
             old_idx = self.site_monitor.pop(row_id, None)
-            arrage.close_windows([hwnd])
+            arrage.close_windows(list(per_row.values()))
             self._set_display_label(row_id, None)
             self._set_target_radio(row_id, None)
             if old_idx is not None:
@@ -690,28 +703,101 @@ class ToggleApp:
             self._update_refresh_state()
             self._update_sites_label()
 
-    def _on_site_added(self, row_id, hwnd, monitor_index, err):
+    def _on_site_added(self, row_id, per_row, monitor_index, err):
         self.set_busy(False)
         row = self._row(row_id)
-        if err or hwnd is None:
+        if err or not per_row:
             if row is not None:
                 row["check_var"].set(False)
+            if per_row:
+                arrage.close_windows(list(per_row.values()))
             self.status.config(text="On", foreground="#16a34a")
             if err:
                 messagebox.showerror("Error", str(err))
             else:
                 messagebox.showwarning(
-                    "Open failed", f"Could not locate Chrome window for {self._url_of(row_id)}"
+                    "Open failed", f"Could not locate browser window for {self._url_of(row_id)}"
                 )
             return
         if row is None:
-            arrage.close_windows([hwnd])
+            arrage.close_windows(list(per_row.values()))
             return
-        self.hwnds[row_id] = hwnd
+        self.hwnds[row_id] = dict(per_row)
         self.site_monitor[row_id] = monitor_index
         self._set_display_label(row_id, monitor_index)
         self._set_target_radio(row_id, monitor_index)
         self._retile_displays({monitor_index})
+        self.status.config(text="On", foreground="#16a34a")
+        self._update_refresh_state()
+        self._update_sites_label()
+
+    def on_browser_toggled(self, row_id, browser, enabled):
+        if not self.is_on or self.busy:
+            return
+        if row_id not in self.hwnds:
+            return
+        per_row = self.hwnds[row_id]
+        name = browser["name"]
+        mon_idx = self.site_monitor.get(row_id)
+        if enabled:
+            if name in per_row:
+                return
+            url = self._url_of(row_id)
+            if not url:
+                return
+            self.set_busy(True)
+            self.status.config(text="...", foreground="#d97706")
+
+            def work():
+                try:
+                    hwnd = arrage.open_browser_window(browser, url)
+                    self.root.after(0, self._on_browser_opened, row_id, name, hwnd, mon_idx, None)
+                except Exception as e:
+                    self.root.after(0, self._on_browser_opened, row_id, name, None, mon_idx, e)
+
+            threading.Thread(target=work, daemon=True).start()
+        else:
+            hwnd = per_row.pop(name, None)
+            if hwnd is None:
+                return
+            arrage.close_windows([hwnd])
+            if not per_row:
+                self.hwnds.pop(row_id, None)
+                old_idx = self.site_monitor.pop(row_id, None)
+                row = self._row(row_id)
+                if row is not None:
+                    row["check_var"].set(False)
+                self._set_display_label(row_id, None)
+                self._set_target_radio(row_id, None)
+                if old_idx is not None:
+                    self._retile_displays({old_idx})
+            elif mon_idx is not None:
+                self._retile_displays({mon_idx})
+            self._update_refresh_state()
+            self._update_sites_label()
+
+    def _on_browser_opened(self, row_id, browser_name, hwnd, monitor_index, err):
+        self.set_busy(False)
+        if err or hwnd is None:
+            row = self._row(row_id)
+            if row is not None:
+                var = row.get("browser_vars", {}).get(browser_name)
+                if var is not None:
+                    var.set(False)
+            self.status.config(text="On", foreground="#16a34a")
+            if err:
+                messagebox.showerror("Error", str(err))
+            else:
+                messagebox.showwarning(
+                    "Open failed", f"Could not locate {browser_name} window"
+                )
+            return
+        if row_id not in self.hwnds:
+            arrage.close_windows([hwnd])
+            return
+        self.hwnds[row_id][browser_name] = hwnd
+        if monitor_index is not None:
+            self._retile_displays({monitor_index})
         self.status.config(text="On", foreground="#16a34a")
         self._update_refresh_state()
         self._update_sites_label()
@@ -733,10 +819,10 @@ class ToggleApp:
         row_id = row["row_id"]
         retile_idx = None
         if row_id in self.hwnds:
-            hwnd = self.hwnds.pop(row_id)
+            per_row = self.hwnds.pop(row_id)
             retile_idx = self.site_monitor.pop(row_id, None)
             try:
-                arrage.close_windows([hwnd])
+                arrage.close_windows(list(per_row.values()))
             except Exception:
                 pass
         for key in ("cb", "name_entry", "browser_cell", "display_lbl", "radio_cell", "addr_entry", "del_btn"):
@@ -760,11 +846,11 @@ class ToggleApp:
 
     def _hwnds_by_monitor(self):
         groups = {}
-        for rid, hwnd in self.hwnds.items():
+        for rid, per_row in self.hwnds.items():
             mon_idx = self.site_monitor.get(rid)
             if mon_idx is None:
                 continue
-            groups.setdefault(mon_idx, []).append(hwnd)
+            groups.setdefault(mon_idx, []).extend(per_row.values())
         return groups
 
     def _retile_displays(self, indices):
@@ -814,7 +900,8 @@ class ToggleApp:
 
     def on_close(self):
         if self.is_on:
-            arrage.close_windows(list(self.hwnds.values()))
+            all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
+            arrage.close_windows(all_hwnds)
         self.root.destroy()
 
     def run(self):

@@ -23,13 +23,21 @@ class ToggleApp:
         self.busy = False
 
         self.sites = arrage.load_sites()
+        self.apps = arrage.load_apps()
         self.settings = arrage.load_settings()
         self._row_settings = self.settings.get("rows", {}) if isinstance(self.settings.get("rows"), dict) else {}
+        self._app_row_settings = self.settings.get("apps", {}) if isinstance(self.settings.get("apps"), dict) else {}
         self.rows = []
+        self.app_rows = []
         self._next_row_id = 0
+        self._next_app_row_id = 0
+        self.app_hwnds = {}
+        self.app_monitor = {}
         self.show_address_var = tk.BooleanVar(value=bool(self.settings.get("show_address", False)))
+        self.show_app_address_var = tk.BooleanVar(value=bool(self.settings.get("show_app_address", False)))
         self._defaults = set(arrage.DisplayOnscreen2Vertically)
         self._edit_snapshot = None
+        self._app_edit_snapshot = None
         self.browsers = arrage.detect_browsers()
         self._default_browser = self.browsers[0]["name"] if self.browsers else ""
 
@@ -131,6 +139,78 @@ class ToggleApp:
         )
         self.status.pack(pady=(5, 10))
 
+        self.app_frame = ttk.LabelFrame(container, text="", padding=10)
+        self.app_frame.pack(expand=True, fill="both", pady=(5, 5))
+        app_frame = self.app_frame
+
+        app_toggle_bar = ttk.Frame(app_frame)
+        app_toggle_bar.pack(side="top", fill="x", pady=(0, 6))
+        self.show_app_address_cb = ttk.Checkbutton(
+            app_toggle_bar,
+            text="Modify path",
+            variable=self.show_app_address_var,
+            command=self._apply_app_address_visibility,
+        )
+        self.show_app_address_cb.pack(side="left")
+
+        self.save_app_btn = ttk.Button(
+            app_toggle_bar,
+            text="Save",
+            command=self.save_apps_file,
+        )
+
+        app_footer = ttk.Frame(app_frame)
+        app_footer.pack(side="bottom", fill="x", pady=(6, 0))
+        self.add_app_btn = ttk.Button(
+            app_footer,
+            text="+",
+            width=3,
+            command=self.on_add_app_row,
+        )
+
+        self.app_canvas = tk.Canvas(app_frame, highlightthickness=0)
+        app_scrollbar = ttk.Scrollbar(app_frame, orient="vertical", command=self.app_canvas.yview)
+        self.app_inner = ttk.Frame(self.app_canvas)
+        app_inner = self.app_inner
+
+        app_inner.bind(
+            "<Configure>",
+            lambda *_: self.app_canvas.configure(scrollregion=self.app_canvas.bbox("all")),
+        )
+        app_inner_window = self.app_canvas.create_window((0, 0), window=app_inner, anchor="nw")
+        self.app_canvas.bind(
+            "<Configure>",
+            lambda e: self.app_canvas.itemconfigure(app_inner_window, width=e.width),
+        )
+        self.app_canvas.configure(yscrollcommand=app_scrollbar.set)
+
+        app_scrollbar.pack(side="right", fill="y")
+        self.app_canvas.pack(side="left", expand=True, fill="both")
+
+        app_inner.columnconfigure(0, weight=0)
+        app_inner.columnconfigure(1, weight=0)
+        app_inner.columnconfigure(2, weight=0)
+        app_inner.columnconfigure(3, weight=0)
+        app_inner.columnconfigure(4, weight=1)
+        app_inner.columnconfigure(5, weight=0)
+
+        ttk.Label(app_inner, text="", font=("Segoe UI", 9, "bold")).grid(
+            row=0, column=0, padx=(0, 6), pady=(0, 4)
+        )
+        ttk.Label(app_inner, text="App", font=("Segoe UI", 9, "bold")).grid(
+            row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 4)
+        )
+        ttk.Label(app_inner, text="Display", font=("Segoe UI", 9, "bold")).grid(
+            row=0, column=2, sticky="w", padx=(0, 12), pady=(0, 4)
+        )
+        ttk.Label(app_inner, text="Open on", font=("Segoe UI", 9, "bold")).grid(
+            row=0, column=3, sticky="w", padx=(0, 12), pady=(0, 4)
+        )
+        self.app_header_addr = ttk.Label(app_inner, text="Path", font=("Segoe UI", 9, "bold"))
+        self.app_header_addr.grid(row=0, column=4, sticky="w", padx=(0, 12), pady=(0, 4))
+        self.app_header_del = ttk.Label(app_inner, text="", font=("Segoe UI", 9, "bold"))
+        self.app_header_del.grid(row=0, column=5, sticky="w", pady=(0, 4))
+
         self.list_frame = ttk.LabelFrame(container, text="", padding=10)
         self.list_frame.pack(expand=True, fill="both", pady=(5, 0))
         list_frame = self.list_frame
@@ -210,9 +290,15 @@ class ToggleApp:
         for name, url in self.sites:
             self._make_row(name, url)
 
+        for name, path in self.apps:
+            self._make_app_row(name, path)
+
         self._reflow_grid()
+        self._reflow_app_grid()
         self._apply_address_visibility()
+        self._apply_app_address_visibility()
         self._update_sites_label()
+        self._update_apps_label()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _make_row(self, name, url, row_id=None):
@@ -454,7 +540,8 @@ class ToggleApp:
         self._update_refresh_state()
 
     def _update_refresh_state(self):
-        enabled = self.is_on and not self.busy and bool(self.hwnds)
+        has_windows = bool(self.hwnds) or bool(self.app_hwnds)
+        enabled = not self.busy and has_windows
         self.refresh_btn.config(state="normal" if enabled else "disabled")
 
     def _apply_address_visibility(self):
@@ -655,10 +742,11 @@ class ToggleApp:
         self._update_sites_label()
 
     def refresh(self):
-        if not self.is_on or self.busy or not self.hwnds:
+        if self.busy or (not self.hwnds and not self.app_hwnds):
             return
         self._retile()
-        self.status.config(text="On", foreground="#16a34a")
+        if self.is_on:
+            self.status.config(text="On", foreground="#16a34a")
 
     def on_target_changed(self, row_id):
         if not self.is_on or self.busy:
@@ -873,6 +961,11 @@ class ToggleApp:
             if mon_idx is None:
                 continue
             groups.setdefault(mon_idx, []).extend(per_row.values())
+        for rid, hwnd in self.app_hwnds.items():
+            mon_idx = self.app_monitor.get(rid)
+            if mon_idx is None:
+                continue
+            groups.setdefault(mon_idx, []).append(hwnd)
         return groups
 
     def _retile_displays(self, indices):
@@ -887,9 +980,10 @@ class ToggleApp:
             arrage.tile_hwnds(mon, hwnds)
 
     def _retile(self):
-        if not self.hwnds:
+        indices = set(self.site_monitor.values()) | set(self.app_monitor.values())
+        if not indices:
             return
-        self._retile_displays(set(self.site_monitor.values()))
+        self._retile_displays(indices)
 
     def save_sites(self):
         for row in list(self.rows):
@@ -920,6 +1014,334 @@ class ToggleApp:
             foreground="#16a34a",
         )
 
+    def _make_app_row(self, name, path, row_id=None):
+        if row_id is None:
+            row_id = self._next_app_row_id
+            self._next_app_row_id += 1
+        else:
+            self._next_app_row_id = max(self._next_app_row_id, row_id + 1)
+
+        saved = self._app_row_settings.get(path, {}) if path else {}
+        saved_target = saved.get("target")
+        initial_checked = bool(saved.get("checked", False))
+
+        check_var = tk.BooleanVar(value=initial_checked)
+        name_var = tk.StringVar(value=name)
+        path_var = tk.StringVar(value=path)
+        target_var = tk.IntVar(
+            value=saved_target if isinstance(saved_target, int) and 0 <= saved_target < self.monitor_count else -1
+        )
+
+        cb = ttk.Checkbutton(
+            self.app_inner,
+            variable=check_var,
+            command=lambda rid=row_id: self.on_app_toggle(rid),
+        )
+        name_entry = ttk.Entry(self.app_inner, textvariable=name_var, width=22, state="readonly")
+        display_lbl = ttk.Label(self.app_inner, text="—", foreground="#888", width=12)
+
+        radio_cell = ttk.Frame(self.app_inner)
+        for j in range(3):
+            rb = ttk.Radiobutton(
+                radio_cell,
+                text=f"D{j + 1}",
+                variable=target_var,
+                value=j,
+                command=lambda rid=row_id: self.on_app_target_changed(rid),
+            )
+            rb.pack(side="left", padx=2)
+            if j >= self.monitor_count:
+                rb.state(["disabled"])
+
+        path_entry = ttk.Entry(self.app_inner, textvariable=path_var)
+        del_btn = ttk.Button(
+            self.app_inner,
+            text="✕",
+            width=3,
+            command=lambda rid=row_id: self.on_app_delete(rid),
+        )
+
+        row = {
+            "row_id": row_id,
+            "name_var": name_var,
+            "path_var": path_var,
+            "check_var": check_var,
+            "target_var": target_var,
+            "display_lbl": display_lbl,
+            "path_entry": path_entry,
+            "name_entry": name_entry,
+            "cb": cb,
+            "radio_cell": radio_cell,
+            "del_btn": del_btn,
+        }
+        self.app_rows.append(row)
+        return row
+
+    def _reflow_app_grid(self):
+        for i, row in enumerate(self.app_rows):
+            grid_row = i + 1
+            row["cb"].grid(row=grid_row, column=0, padx=(0, 6), pady=2)
+            row["name_entry"].grid(row=grid_row, column=1, sticky="ew", padx=(0, 12), pady=2)
+            row["display_lbl"].grid(row=grid_row, column=2, sticky="w", padx=(0, 12), pady=2)
+            row["radio_cell"].grid(row=grid_row, column=3, sticky="w", padx=(0, 12), pady=2)
+            row["path_entry"].grid(row=grid_row, column=4, sticky="ew", padx=(0, 12), pady=2)
+            row["del_btn"].grid(row=grid_row, column=5, sticky="w", pady=2)
+
+    def _app_row(self, row_id):
+        for r in self.app_rows:
+            if r["row_id"] == row_id:
+                return r
+        return None
+
+    def _apply_app_address_visibility(self):
+        show = self.show_app_address_var.get()
+        if show and self._app_edit_snapshot is None:
+            self._take_app_edit_snapshot()
+        elif not show and self._app_edit_snapshot is not None:
+            self._revert_app_to_snapshot()
+            self._app_edit_snapshot = None
+        widgets = [
+            self.app_header_addr,
+            self.app_header_del,
+            *(r["path_entry"] for r in self.app_rows),
+            *(r["del_btn"] for r in self.app_rows),
+        ]
+        for w in widgets:
+            if show:
+                w.grid()
+            else:
+                w.grid_remove()
+        name_state = "normal" if show else "readonly"
+        for row in self.app_rows:
+            row["name_entry"].config(state=name_state)
+        if show:
+            self.save_app_btn.pack(side="right")
+            self.add_app_btn.pack(side="left")
+        else:
+            self.save_app_btn.pack_forget()
+            self.add_app_btn.pack_forget()
+
+    def _take_app_edit_snapshot(self):
+        self._app_edit_snapshot = [
+            (r["row_id"], r["name_var"].get(), r["path_var"].get())
+            for r in self.app_rows
+        ]
+
+    def _revert_app_to_snapshot(self):
+        snapshot = self._app_edit_snapshot or []
+        snapshot_ids = {rid for rid, _, _ in snapshot}
+        current_ids = {r["row_id"] for r in self.app_rows}
+
+        for row in list(self.app_rows):
+            if row["row_id"] not in snapshot_ids:
+                self._destroy_app_row(row)
+
+        rows_by_id = {r["row_id"]: r for r in self.app_rows}
+        for rid, name, path in snapshot:
+            if rid in rows_by_id:
+                rows_by_id[rid]["name_var"].set(name)
+                rows_by_id[rid]["path_var"].set(path)
+
+        for rid, name, path in snapshot:
+            if rid not in current_ids:
+                self._make_app_row(name, path, row_id=rid)
+
+        rows_by_id = {r["row_id"]: r for r in self.app_rows}
+        self.app_rows = [rows_by_id[rid] for rid, _, _ in snapshot if rid in rows_by_id]
+        self._reflow_app_grid()
+        self._update_apps_label()
+
+    def _update_apps_label(self):
+        total = len(self.app_rows)
+        displayed = len(self.app_hwnds)
+        parts = [f"{total} apps", f"{displayed} displayed"]
+        self.app_frame.config(text=" | ".join(parts))
+
+    def _path_of(self, row_id):
+        row = self._app_row(row_id)
+        if row is None:
+            return ""
+        return row["path_var"].get().strip()
+
+    def _set_app_display_label(self, row_id, monitor_index):
+        row = self._app_row(row_id)
+        if row is None:
+            return
+        lbl = row["display_lbl"]
+        if monitor_index is None:
+            lbl.config(text="—", foreground="#888")
+        else:
+            lbl.config(text=f"Display {monitor_index + 1}", foreground="#16a34a")
+
+    def _set_app_target_radio(self, row_id, monitor_index):
+        row = self._app_row(row_id)
+        if row is None:
+            return
+        row["target_var"].set(-1 if monitor_index is None else monitor_index)
+
+    def _resolve_app_target(self, row_id):
+        row = self._app_row(row_id)
+        if row is None:
+            return self.target_display.get()
+        per_row = row["target_var"].get()
+        if 0 <= per_row < self.monitor_count:
+            return per_row
+        return self.target_display.get()
+
+    def on_app_toggle(self, row_id):
+        if self.busy:
+            return
+        row = self._app_row(row_id)
+        if row is None:
+            return
+        if row["check_var"].get():
+            if row_id in self.app_hwnds:
+                return
+            path = self._path_of(row_id)
+            if not path:
+                row["check_var"].set(False)
+                return
+            target = self._resolve_app_target(row_id)
+            self.set_busy(True)
+            self.status.config(text="...", foreground="#d97706")
+
+            def work():
+                try:
+                    hwnd = arrage.open_app_window(path)
+                    self.root.after(0, self._on_app_added, row_id, hwnd, target, None)
+                except Exception as e:
+                    self.root.after(0, self._on_app_added, row_id, None, target, e)
+
+            threading.Thread(target=work, daemon=True).start()
+        else:
+            if row_id not in self.app_hwnds:
+                return
+            hwnd = self.app_hwnds.pop(row_id)
+            old_idx = self.app_monitor.pop(row_id, None)
+            arrage.close_windows([hwnd])
+            self._set_app_display_label(row_id, None)
+            self._set_app_target_radio(row_id, None)
+            if old_idx is not None:
+                self._retile_displays({old_idx})
+            self.status.config(text="On" if self.is_on else "Off",
+                               foreground="#16a34a" if self.is_on else "#888")
+            self._update_refresh_state()
+            self._update_apps_label()
+
+    def _on_app_added(self, row_id, hwnd, monitor_index, err):
+        self.set_busy(False)
+        row = self._app_row(row_id)
+        if err or hwnd is None:
+            if row is not None:
+                row["check_var"].set(False)
+            self.status.config(text="On" if self.is_on else "Off",
+                               foreground="#16a34a" if self.is_on else "#888")
+            if err:
+                messagebox.showerror("Error", str(err))
+            else:
+                messagebox.showwarning(
+                    "Launch failed", f"Could not locate window for {self._path_of(row_id)}"
+                )
+            return
+        if row is None:
+            arrage.close_windows([hwnd])
+            return
+        self.app_hwnds[row_id] = hwnd
+        self.app_monitor[row_id] = monitor_index
+        self._set_app_display_label(row_id, monitor_index)
+        self._set_app_target_radio(row_id, monitor_index)
+        self._retile_displays({monitor_index})
+        self.status.config(text="On" if self.is_on else "Off",
+                           foreground="#16a34a" if self.is_on else "#888")
+        self._update_refresh_state()
+        self._update_apps_label()
+
+    def on_app_target_changed(self, row_id):
+        if self.busy or row_id not in self.app_hwnds:
+            return
+        row = self._app_row(row_id)
+        if row is None:
+            return
+        new_idx = row["target_var"].get()
+        if new_idx < 0 or new_idx == self.app_monitor.get(row_id):
+            return
+        old_idx = self.app_monitor[row_id]
+        self.app_monitor[row_id] = new_idx
+        self._set_app_display_label(row_id, new_idx)
+        self._retile_displays({old_idx, new_idx})
+        self._update_apps_label()
+
+    def on_add_app_row(self):
+        row = self._make_app_row("", "")
+        self._reflow_app_grid()
+        self._apply_app_address_visibility()
+        self._update_apps_label()
+        self.root.after(50, self._scroll_app_to_bottom)
+        if self.show_app_address_var.get():
+            row["name_entry"].focus_set()
+
+    def _scroll_app_to_bottom(self):
+        self.app_canvas.update_idletasks()
+        self.app_canvas.yview_moveto(1.0)
+
+    def _destroy_app_row(self, row):
+        row_id = row["row_id"]
+        retile_idx = None
+        if row_id in self.app_hwnds:
+            hwnd = self.app_hwnds.pop(row_id)
+            retile_idx = self.app_monitor.pop(row_id, None)
+            try:
+                arrage.close_windows([hwnd])
+            except Exception:
+                pass
+        for key in ("cb", "name_entry", "display_lbl", "radio_cell", "path_entry", "del_btn"):
+            try:
+                row[key].destroy()
+            except Exception:
+                pass
+        if row in self.app_rows:
+            self.app_rows.remove(row)
+        if retile_idx is not None:
+            self._retile_displays({retile_idx})
+
+    def on_app_delete(self, row_id):
+        row = self._app_row(row_id)
+        if row is None:
+            return
+        self._destroy_app_row(row)
+        self._reflow_app_grid()
+        self._update_refresh_state()
+        self._update_apps_label()
+
+    def save_apps_file(self):
+        for row in list(self.app_rows):
+            name = row["name_var"].get().strip()
+            path = row["path_var"].get().strip()
+            if not name or not path:
+                self._destroy_app_row(row)
+        self._reflow_app_grid()
+
+        edited = [
+            (r["name_var"].get().strip(), r["path_var"].get().strip())
+            for r in self.app_rows
+        ]
+        try:
+            arrage.save_apps(edited)
+        except Exception as e:
+            messagebox.showerror("Save failed", str(e))
+            return
+        self.apps = edited
+        if self.show_app_address_var.get():
+            self._take_app_edit_snapshot()
+        else:
+            self._app_edit_snapshot = None
+        self._update_refresh_state()
+        self._update_apps_label()
+        self.status.config(
+            text="Saved" if not self.is_on else "On",
+            foreground="#16a34a",
+        )
+
     def _collect_settings(self):
         rows = {}
         for r in self.rows:
@@ -932,10 +1354,22 @@ class ToggleApp:
                 "browsers": [name for name, var in r.get("browser_vars", {}).items() if var.get()],
                 "target": target if 0 <= target < self.monitor_count else -1,
             }
+        apps = {}
+        for r in self.app_rows:
+            path = r["path_var"].get().strip()
+            if not path:
+                continue
+            target = r["target_var"].get()
+            apps[path] = {
+                "checked": bool(r["check_var"].get()),
+                "target": target if 0 <= target < self.monitor_count else -1,
+            }
         return {
             "target_display": int(self.target_display.get()),
             "show_address": bool(self.show_address_var.get()),
+            "show_app_address": bool(self.show_app_address_var.get()),
             "rows": rows,
+            "apps": apps,
         }
 
     def on_close(self):
@@ -943,8 +1377,9 @@ class ToggleApp:
             arrage.save_settings(self._collect_settings())
         except Exception as e:
             print(f"Failed to save settings: {e}")
-        if self.is_on:
-            all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
+        all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
+        all_hwnds.extend(self.app_hwnds.values())
+        if all_hwnds:
             arrage.close_windows(all_hwnds)
         self.root.destroy()
 

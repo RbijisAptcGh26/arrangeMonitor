@@ -8,6 +8,7 @@ import win32gui
 from screeninfo import get_monitors
 
 SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites.txt")
+APPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps.txt")
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 DisplayOnscreen2Vertically = [
@@ -47,6 +48,71 @@ def load_settings(path=SETTINGS_FILE):
 def save_settings(data, path=SETTINGS_FILE):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+DEFAULT_APPS = [
+    ("Outlook", r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE"),
+    ("Teams", os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Teams\current\Teams.exe")),
+    ("Word", r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE"),
+    ("Excel", r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"),
+    ("PowerPoint", r"C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE"),
+    ("OneNote", r"C:\Program Files\Microsoft Office\root\Office16\ONENOTE.EXE"),
+]
+
+
+def load_apps(path=APPS_FILE):
+    apps = []
+    if not os.path.exists(path):
+        save_apps(DEFAULT_APPS, path)
+        return list(DEFAULT_APPS)
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "|" not in line:
+                continue
+            name, exe = line.split("|", 1)
+            apps.append((name.strip(), exe.strip()))
+    return apps
+
+
+def save_apps(apps, path=APPS_FILE):
+    with open(path, "w", encoding="utf-8") as f:
+        for name, exe in apps:
+            f.write(f"{name} | {exe}\n")
+
+
+def _list_top_windows():
+    handles = []
+
+    def cb(hwnd, _):
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        if not win32gui.GetWindowText(hwnd):
+            return
+        handles.append(hwnd)
+
+    win32gui.EnumWindows(cb, None)
+    return set(handles)
+
+
+def open_app_window(exe_path):
+    if not exe_path or not os.path.exists(exe_path):
+        raise FileNotFoundError(f"App not found: {exe_path}")
+    before = _list_top_windows()
+    subprocess.Popen([exe_path])
+    for _ in range(60):
+        time.sleep(0.25)
+        diff = _list_top_windows() - before
+        for hwnd in diff:
+            try:
+                rect = win32gui.GetWindowRect(hwnd)
+                w = rect[2] - rect[0]
+                h = rect[3] - rect[1]
+            except Exception:
+                continue
+            if w > 200 and h > 150:
+                return hwnd
+    return None
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

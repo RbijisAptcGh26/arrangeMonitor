@@ -1,14 +1,14 @@
 {
-  "target_display": 1,
+  "target_display": 2,
   "show_address": false,
   "show_app_address": false,
   "rows": {
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login": {
-      "checked": true,
+      "checked": false,
       "browsers": [
         "Chrome"
       ],
-      "target": 1
+      "target": -1
     },
     "https://reliance-dev.allegromicro.com/Dev/rel/#/app/auth/login": {
       "checked": false,
@@ -18,11 +18,11 @@
       "target": -1
     },
     "https://reliance-qa.allegromicro.com/Test/rel/#/app/auth/login": {
-      "checked": true,
+      "checked": false,
       "browsers": [
         "Chrome"
       ],
-      "target": 1
+      "target": -1
     },
     "https://ampiapp1:8215/": {
       "checked": false,
@@ -48,7 +48,7 @@
     "https://reliance-dev.allegromicro.com/Dev/WebHelp": {
       "checked": false,
       "browsers": [
-        "Chrome"
+        "Edge"
       ],
       "target": -1
     },
@@ -102,11 +102,11 @@
       "target": -1
     },
     "https://allegromicro.atlassian.net/servicedesk/customer/user/login?destination=portals": {
-      "checked": false,
+      "checked": true,
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 2
     },
     "https://allegromicro.sharepoint.com/sites/HR-AMPI": {
       "checked": false,
@@ -151,11 +151,11 @@
       "target": -1
     },
     "https://bigal.allegromicro.ai/": {
-      "checked": true,
+      "checked": false,
       "browsers": [
         "Chrome"
       ],
-      "target": 1
+      "target": -1
     }
   },
   "apps": {
@@ -165,23 +165,23 @@
     },
     "C:\\Users\\rbijis\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe": {
       "checked": false,
-      "target": 1
+      "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE": {
-      "checked": false,
-      "target": -1
+      "checked": true,
+      "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE": {
       "checked": true,
       "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE": {
-      "checked": false,
-      "target": -1
+      "checked": true,
+      "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE": {
-      "checked": false,
-      "target": -1
+      "checked": true,
+      "target": 0
     }
   }
 }

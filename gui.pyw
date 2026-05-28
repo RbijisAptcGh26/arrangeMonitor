@@ -13,9 +13,12 @@ class ToggleApp:
         self.root.title("Arrange Monitor")
 
         dpi = self.root.winfo_fpixels("1i")
-        w, h = int(8 * dpi), int(5 * dpi)
+        w, h = int(13 * dpi), int(5 * dpi)
         self.root.geometry(f"{w}x{h}")
-        self.root.minsize(w // 2, h // 2)
+        self._full_minsize = (int(8 * dpi), int(3 * dpi))
+        self.root.minsize(*self._full_minsize)
+        self._compact_mode = False
+        self._saved_geometry = None
 
         self.hwnds = {}
         self.site_monitor = {}
@@ -71,12 +74,12 @@ class ToggleApp:
             default_index = saved_target
         self.target_display = tk.IntVar(value=default_index)
 
-        radio_frame = ttk.Frame(container)
-        radio_frame.pack(pady=(0, 10))
+        self.radio_frame = ttk.Frame(container)
+        self.radio_frame.pack(pady=(0, 10))
 
         for i in range(3):
             rb = ttk.Radiobutton(
-                radio_frame,
+                self.radio_frame,
                 text=f"Display {i + 1}",
                 variable=self.target_display,
                 value=i,
@@ -85,11 +88,11 @@ class ToggleApp:
             if i >= monitor_count:
                 rb.state(["disabled"])
 
-        button_row = ttk.Frame(container)
-        button_row.pack(pady=(10, 10))
+        self.button_row = ttk.Frame(container)
+        self.button_row.pack(pady=(10, 10))
 
         self.monitor_canvas = tk.Canvas(
-            button_row,
+            self.button_row,
             width=140,
             height=90,
             bg="#f3f4f6",
@@ -101,7 +104,7 @@ class ToggleApp:
         self.target_display.trace_add("write", lambda *_: self._draw_monitor_layout())
 
         self.toggle_btn = tk.Button(
-            button_row,
+            self.button_row,
             text="On",
             font=("Segoe UI", 28, "bold"),
             width=10,
@@ -116,7 +119,7 @@ class ToggleApp:
         self.toggle_btn.pack(side="left", padx=(0, 10))
 
         self.refresh_btn = tk.Button(
-            button_row,
+            self.button_row,
             text="Refresh",
             font=("Segoe UI", 12, "bold"),
             width=10,
@@ -129,7 +132,22 @@ class ToggleApp:
             cursor="hand2",
             state="disabled",
         )
-        self.refresh_btn.pack(side="left")
+        self.refresh_btn.pack(side="left", padx=(0, 10))
+
+        self.compact_btn = tk.Button(
+            self.button_row,
+            text="Compact",
+            font=("Segoe UI", 12, "bold"),
+            width=10,
+            height=2,
+            bg="#e5e7eb",
+            fg="#374151",
+            relief="flat",
+            activebackground="#d1d5db",
+            command=self._toggle_compact,
+            cursor="hand2",
+        )
+        self.compact_btn.pack(side="left")
 
         self.status = ttk.Label(
             container,
@@ -139,8 +157,11 @@ class ToggleApp:
         )
         self.status.pack(pady=(5, 10))
 
-        self.app_frame = ttk.LabelFrame(container, text="", padding=10)
-        self.app_frame.pack(expand=True, fill="both", pady=(5, 5))
+        self.paned = ttk.PanedWindow(container, orient="horizontal")
+        self.paned.pack(expand=True, fill="both", pady=(5, 0))
+
+        self.app_frame = ttk.LabelFrame(self.paned, text="", padding=10)
+        self.paned.add(self.app_frame, weight=1)
         app_frame = self.app_frame
 
         app_toggle_bar = ttk.Frame(app_frame)
@@ -211,8 +232,8 @@ class ToggleApp:
         self.app_header_del = ttk.Label(app_inner, text="", font=("Segoe UI", 9, "bold"))
         self.app_header_del.grid(row=0, column=5, sticky="w", pady=(0, 4))
 
-        self.list_frame = ttk.LabelFrame(container, text="", padding=10)
-        self.list_frame.pack(expand=True, fill="both", pady=(5, 0))
+        self.list_frame = ttk.LabelFrame(self.paned, text="", padding=10)
+        self.paned.add(self.list_frame, weight=1)
         list_frame = self.list_frame
 
         toggle_bar = ttk.Frame(list_frame)
@@ -259,10 +280,21 @@ class ToggleApp:
         scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", expand=True, fill="both")
 
-        self.canvas.bind_all(
-            "<MouseWheel>",
-            lambda e: self.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
-        )
+        def _bind_wheel(widget, canvas):
+            widget.bind(
+                "<Enter>",
+                lambda e, c=canvas: c.bind_all(
+                    "<MouseWheel>",
+                    lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units"),
+                ),
+            )
+            widget.bind(
+                "<Leave>",
+                lambda e, c=canvas: c.unbind_all("<MouseWheel>"),
+            )
+
+        _bind_wheel(self.app_frame, self.app_canvas)
+        _bind_wheel(self.list_frame, self.canvas)
 
         inner.columnconfigure(0, weight=0)
         inner.columnconfigure(1, weight=0)
@@ -1371,6 +1403,55 @@ class ToggleApp:
             "rows": rows,
             "apps": apps,
         }
+
+    def _toggle_compact(self):
+        if self._compact_mode:
+            self._exit_compact()
+        else:
+            self._enter_compact()
+
+    def _enter_compact(self):
+        self.root.update_idletasks()
+        self._saved_geometry = self.root.geometry()
+
+        self.display_info.pack_forget()
+        self.radio_frame.pack_forget()
+        self.paned.pack_forget()
+
+        self.compact_btn.config(
+            text="Expand",
+            bg="#fde68a",
+            fg="#78350f",
+            activebackground="#fcd34d",
+        )
+        self._compact_mode = True
+
+        self.root.update_idletasks()
+        req_w = max(self.button_row.winfo_reqwidth() + 60, 600)
+        req_h = (
+            self.button_row.winfo_reqheight()
+            + self.status.winfo_reqheight()
+            + 60
+        )
+        self.root.minsize(req_w, req_h)
+        self.root.geometry(f"{req_w}x{req_h}")
+
+    def _exit_compact(self):
+        self._compact_mode = False
+        self.compact_btn.config(
+            text="Compact",
+            bg="#e5e7eb",
+            fg="#374151",
+            activebackground="#d1d5db",
+        )
+
+        self.display_info.pack(before=self.button_row, pady=(0, 5))
+        self.radio_frame.pack(before=self.button_row, pady=(0, 10))
+        self.paned.pack(expand=True, fill="both", pady=(5, 0))
+
+        self.root.minsize(*self._full_minsize)
+        if self._saved_geometry:
+            self.root.geometry(self._saved_geometry)
 
     def on_close(self):
         try:

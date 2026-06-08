@@ -1,6 +1,6 @@
 {
-  "target_display": 2,
-  "show_address": false,
+  "target_display": 1,
+  "show_address": true,
   "show_app_address": false,
   "rows": {
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login": {
@@ -15,7 +15,7 @@
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 0
     },
     "https://reliance-qa.allegromicro.com/Test/rel/#/app/auth/login": {
       "checked": false,
@@ -38,17 +38,17 @@
       ],
       "target": -1
     },
-    "https://allegromicro.sharepoint.com/sites/ITSystems/etq-reliance/internals/_layouts/15/Doc.aspx?sourcedoc=%7B14476e63-834a-4e99-ba09-2c7aef193ed6%7D&action=edit&wd=target%28General%20Info.one%7C71730bb2-ee1c-4a41-97b6-278ded7dceb4%2FReliance%20General%20Info%7Cec388b4b-08b8-49db-bd32-35492b4be2eb%2F%29&wdorigin=NavigationUrl": {
-      "checked": false,
+    "https://bigal.allegromicro.ai/": {
+      "checked": true,
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 2
     },
     "https://reliance-dev.allegromicro.com/Dev/WebHelp": {
       "checked": false,
       "browsers": [
-        "Edge"
+        "Chrome"
       ],
       "target": -1
     },
@@ -60,11 +60,11 @@
       "target": -1
     },
     "https://allegro-rcp.etq.com/Allegro/reliance": {
-      "checked": false,
+      "checked": true,
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 2
     },
     "https://allegromicro.sharepoint.com/sites/Intranet/": {
       "checked": false,
@@ -92,7 +92,7 @@
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 0
     },
     "https://ampi.learning.allegromicro.com/plus/dashboard": {
       "checked": false,
@@ -106,7 +106,7 @@
       "browsers": [
         "Chrome"
       ],
-      "target": 2
+      "target": 0
     },
     "https://allegromicro.sharepoint.com/sites/HR-AMPI": {
       "checked": false,
@@ -150,7 +150,14 @@
       ],
       "target": -1
     },
-    "https://bigal.allegromicro.ai/": {
+    "https://allegromicro.sharepoint.com/sites/ITSystems/etq-reliance/internals/_layouts/15/Doc.aspx?sourcedoc=%7B14476e63-834a-4e99-ba09-2c7aef193ed6%7D&action=edit&wd=target%28General%20Info.one%7C71730bb2-ee1c-4a41-97b6-278ded7dceb4%2FReliance%20General%20Info%7Cec388b4b-08b8-49db-bd32-35492b4be2eb%2F%29&wdorigin=NavigationUrl": {
+      "checked": false,
+      "browsers": [
+        "Chrome"
+      ],
+      "target": 0
+    },
+    "https://allegromicro.sharepoint.com/sites/ITSystems/etq-reliance/internals/sitepages/Home.aspx": {
       "checked": false,
       "browsers": [
         "Chrome"
@@ -161,7 +168,7 @@
   "apps": {
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE": {
       "checked": true,
-      "target": 1
+      "target": 0
     },
     "C:\\Users\\rbijis\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe": {
       "checked": false,
@@ -169,10 +176,10 @@
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE": {
       "checked": true,
-      "target": 0
+      "target": 1
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE": {
-      "checked": true,
+      "checked": false,
       "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE": {
@@ -180,8 +187,8 @@
       "target": 0
     },
     "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE": {
-      "checked": true,
-      "target": 0
+      "checked": false,
+      "target": -1
     }
   }
 }

@@ -95,7 +95,7 @@ class ToggleApp:
         )
         self.display_info.pack(pady=(0, 5))
 
-        default_index = 1 if monitor_count >= 2 else 0
+        default_index = max(monitor_count - 1, 0)
         saved_target = self.settings.get("target_display")
         if isinstance(saved_target, int) and 0 <= saved_target < max(monitor_count, 1):
             default_index = saved_target
@@ -290,6 +290,9 @@ class ToggleApp:
             command=self.on_add_row,
         )
 
+        self.header_frame = ttk.Frame(list_frame)
+        self.header_frame.pack(side="top", fill="x", pady=(0, 4))
+
         self.canvas = tk.Canvas(list_frame, highlightthickness=0)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.canvas.yview)
         self.inner = ttk.Frame(self.canvas)
@@ -297,7 +300,10 @@ class ToggleApp:
 
         inner.bind(
             "<Configure>",
-            lambda *_: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+            lambda *_: (
+                self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+                self._sync_header_widths(),
+            ),
         )
         inner_window = self.canvas.create_window((0, 0), window=inner, anchor="nw")
         self.canvas.bind(
@@ -310,29 +316,29 @@ class ToggleApp:
         self.canvas.pack(side="left", expand=True, fill="both")
 
 
-        inner.columnconfigure(0, weight=0)
-        inner.columnconfigure(1, weight=0)
-        inner.columnconfigure(2, weight=1)
-        inner.columnconfigure(3, weight=0)
+        for col, weight in ((0, 0), (1, 0), (2, 1), (3, 0)):
+            inner.columnconfigure(col, weight=weight)
+            self.header_frame.columnconfigure(col, weight=weight)
 
-        self.header_left_panel = ttk.Frame(inner)
-        self.header_left_panel.grid(row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 4))
+        self.header_left_panel = ttk.Frame(self.header_frame)
+        self.header_left_panel.grid(row=0, column=0, sticky="w", padx=(0, 12))
 
-        ttk.Label(self.header_left_panel, text="", font=("Segoe UI", 9, "bold")).grid(
-            row=0, column=0, padx=(0, 6)
+        self.header_check_count = ttk.Label(
+            self.header_left_panel, text="", font=("Segoe UI", 9, "bold")
         )
+        self.header_check_count.grid(row=0, column=0, padx=(0, 6))
         ttk.Label(self.header_left_panel, text="Open on", font=("Segoe UI", 9, "bold")).grid(
             row=0, column=1, sticky="w", padx=(0, 12)
         )
         ttk.Label(self.header_left_panel, text="Browser", font=("Segoe UI", 9, "bold")).grid(
             row=0, column=2, sticky="w", padx=(0, 12)
         )
-        self.header_name = ttk.Label(inner, text="Site", font=("Segoe UI", 9, "bold"))
-        self.header_name.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(0, 4))
-        self.header_addr = ttk.Label(inner, text="Address", font=("Segoe UI", 9, "bold"))
-        self.header_addr.grid(row=0, column=2, sticky="w", padx=(0, 12), pady=(0, 4))
-        self.header_del = ttk.Label(inner, text="", font=("Segoe UI", 9, "bold"))
-        self.header_del.grid(row=0, column=3, sticky="w", pady=(0, 4))
+        self.header_name = ttk.Label(self.header_frame, text="Site", font=("Segoe UI", 9, "bold"))
+        self.header_name.grid(row=0, column=1, sticky="w", padx=(0, 12))
+        self.header_addr = ttk.Label(self.header_frame, text="Address", font=("Segoe UI", 9, "bold"))
+        self.header_addr.grid(row=0, column=2, sticky="w", padx=(0, 12))
+        self.header_del = ttk.Label(self.header_frame, text="", font=("Segoe UI", 9, "bold"))
+        self.header_del.grid(row=0, column=3, sticky="w")
 
         for name, url in self.sites:
             self._make_row(name, url)
@@ -343,6 +349,7 @@ class ToggleApp:
         self._bind_wheel(self.list_frame, self.canvas)
         self._bind_wheel(self.app_frame, self.app_canvas)
 
+        self._update_check_count()
         self._reflow_grid()
         self._reflow_app_grid()
         self._apply_address_visibility()
@@ -367,6 +374,7 @@ class ToggleApp:
         saved_target = saved.get("target")
 
         check_var = tk.BooleanVar(value=initial_checked)
+        check_var.trace_add("write", lambda *_: self._update_check_count())
         name_var = tk.StringVar(value=name)
         url_var = tk.StringVar(value=url)
         target_var = tk.IntVar(
@@ -443,7 +451,7 @@ class ToggleApp:
 
     def _reflow_grid(self):
         for i, row in enumerate(self.rows):
-            grid_row = i + 1
+            grid_row = i
             row["left_panel"].grid(row=grid_row, column=0, sticky="w", padx=(0, 12), pady=2)
             row["cb"].grid(row=0, column=0, padx=(0, 6))
             row["radio_cell"].grid(row=0, column=1, sticky="w", padx=(0, 12))
@@ -673,6 +681,21 @@ class ToggleApp:
             else:
                 parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
+
+    def _update_check_count(self):
+        if not hasattr(self, "header_check_count"):
+            return
+        count = sum(1 for r in self.rows if r["check_var"].get())
+        self.header_check_count.config(text=str(count) if count > 0 else "")
+
+    def _sync_header_widths(self):
+        if not getattr(self, "header_frame", None) or not self.rows:
+            return
+        self.inner.update_idletasks()
+        for col in (0, 1, 3):
+            bbox = self.inner.grid_bbox(col, 0)
+            if bbox:
+                self.header_frame.columnconfigure(col, minsize=bbox[2])
 
     def toggle(self):
         if self.busy:
@@ -1002,6 +1025,7 @@ class ToggleApp:
                 pass
         if row in self.rows:
             self.rows.remove(row)
+        self._update_check_count()
         if retile_idx is not None:
             self._retile_displays({retile_idx})
 

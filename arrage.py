@@ -1,11 +1,15 @@
+import ctypes
 import json
 import os
 import subprocess
 import time
+from ctypes import wintypes
 
 import win32con
 import win32gui
 from screeninfo import get_monitors
+
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
 
 SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites.txt")
 APPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps.txt")
@@ -257,9 +261,41 @@ def list_chrome_windows():
     return set(handles)
 
 
+def _get_frame_padding(hwnd):
+    try:
+        visible = wintypes.RECT()
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd),
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            ctypes.byref(visible),
+            ctypes.sizeof(visible),
+        )
+        geom = wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(geom))
+        return (
+            visible.left - geom.left,
+            visible.top - geom.top,
+            geom.right - visible.right,
+            geom.bottom - visible.bottom,
+        )
+    except Exception:
+        return (0, 0, 0, 0)
+
+
 def move_window(hwnd, x, y, w, h):
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, w, h, win32con.SWP_SHOWWINDOW)
+    left, top, right, bottom = _get_frame_padding(hwnd)
+    if left or top or right or bottom:
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOP,
+            x - left,
+            y - top,
+            w + left + right,
+            h + top + bottom,
+            win32con.SWP_SHOWWINDOW,
+        )
 
 
 def open_chrome_window(url):

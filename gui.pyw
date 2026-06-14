@@ -65,6 +65,7 @@ class ToggleApp:
         self.top_frame.pack(side="top", fill="x")
         self.top_frame.columnconfigure(0, weight=1, uniform="halves")
         self.top_frame.columnconfigure(1, weight=1, uniform="halves")
+        self.top_frame.rowconfigure(0, weight=1)
 
         self.bottom_buttons = ttk.Frame(container)
         self.bottom_buttons.pack(side="bottom", fill="x", pady=(10, 0))
@@ -128,7 +129,7 @@ class ToggleApp:
         )
         self.monitor_canvas.pack(side="left", padx=(0, 12))
         self._draw_monitor_layout()
-        self.target_display.trace_add("write", lambda *_: self._draw_monitor_layout())
+        self.target_display.trace_add("write", self._on_target_display_changed)
 
         self.toggle_btn = tk.Button(
             self.button_row,
@@ -358,6 +359,10 @@ class ToggleApp:
         self._update_apps_label()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        self._was_maximized = False
+        self._normal_bottom_height = 0
+        self.root.bind("<Configure>", self._on_root_configure)
+
     def _make_row(self, name, url, row_id=None):
         if row_id is None:
             row_id = self._next_row_id
@@ -523,12 +528,18 @@ class ToggleApp:
     def _select_monitor(self, idx):
         if 0 <= idx < self.monitor_count:
             self.target_display.set(idx)
-            for row in self.rows:
-                row["target_var"].set(idx)
-                self.on_target_changed(row["row_id"])
-            for row in self.app_rows:
-                row["target_var"].set(idx)
-                self.on_app_target_changed(row["row_id"])
+
+    def _on_target_display_changed(self, *_):
+        self._draw_monitor_layout()
+        idx = self.target_display.get()
+        if not (0 <= idx < self.monitor_count):
+            return
+        for row in self.rows:
+            row["target_var"].set(idx)
+            self.on_target_changed(row["row_id"])
+        for row in self.app_rows:
+            row["target_var"].set(idx)
+            self.on_app_target_changed(row["row_id"])
 
     def _make_browser_icon(self, parent, browser, var, row_id):
         size = 22
@@ -696,6 +707,28 @@ class ToggleApp:
             bbox = self.inner.grid_bbox(col, 0)
             if bbox:
                 self.header_frame.columnconfigure(col, minsize=bbox[2])
+
+    def _on_root_configure(self, event):
+        if event.widget is not self.root:
+            return
+        is_max = self.root.state() == "zoomed"
+        if not is_max:
+            h = self.bottom_frame.winfo_height()
+            if h > 10:
+                self._normal_bottom_height = h
+        if is_max == self._was_maximized:
+            return
+        self._was_maximized = is_max
+        if is_max:
+            if self._normal_bottom_height > 10:
+                self.bottom_frame.configure(height=self._normal_bottom_height)
+                self.bottom_frame.pack_propagate(False)
+            self.bottom_frame.pack_configure(expand=False, fill="x")
+            self.top_frame.pack_configure(expand=True, fill="both")
+        else:
+            self.bottom_frame.pack_propagate(True)
+            self.bottom_frame.pack_configure(expand=True, fill="both")
+            self.top_frame.pack_configure(expand=False, fill="x")
 
     def toggle(self):
         if self.busy:

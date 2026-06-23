@@ -15,6 +15,13 @@ class ToggleApp:
         self.root.title("Arrange Monitor")
         self.root.attributes("-topmost", True)
 
+        # Row tint palette — mirrors the monitor figure: green = currently
+        # selected display, blue = any other display.
+        self._tint_neutral = "#f0f0f0"
+        self._tint_green = "#dcfce7"
+        self._tint_blue = "#bfdbfe"
+        self._setup_row_styles()
+
         menubar = tk.Menu(self.root)
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label="About", command=self._show_about)
@@ -88,7 +95,7 @@ class ToggleApp:
         self.controls_frame = ttk.Frame(self.top_frame)
         self.controls_frame.grid(row=0, column=0, sticky="nsew")
         self.controls_inner = ttk.Frame(self.controls_frame)
-        self.controls_inner.pack(expand=True, fill="x")
+        self.controls_inner.pack(expand=True, fill="both")
 
         self.list_frame = ttk.LabelFrame(self.top_frame, text="", padding=10)
         self.list_frame.grid(row=0, column=1, sticky="nsew", padx=(20, 0))
@@ -127,24 +134,12 @@ class ToggleApp:
         self.button_row = ttk.Frame(self.controls_inner)
         self.button_row.pack(pady=(10, 10))
 
-        self.monitor_canvas = tk.Canvas(
-            self.button_row,
-            width=140,
-            height=90,
-            bg="#f3f4f6",
-            highlightthickness=1,
-            highlightbackground="#d1d5db",
-        )
-        self.monitor_canvas.pack(side="left", padx=(0, 12))
-        self._draw_monitor_layout()
-        self.target_display.trace_add("write", self._on_target_display_changed)
-
         self.toggle_btn = tk.Button(
             self.button_row,
             text="On",
-            font=("Segoe UI", 28, "bold"),
-            width=10,
-            height=2,
+            font=("Segoe UI", 12, "bold"),
+            width=8,
+            height=1,
             bg="#bbbbbb",
             fg="white",
             relief="flat",
@@ -156,10 +151,6 @@ class ToggleApp:
 
         bottom_btn_center = ttk.Frame(self.bottom_buttons_left)
         bottom_btn_center.pack()
-
-        bottom_spacer = tk.Frame(bottom_btn_center, width=140 + 12, height=1)
-        bottom_spacer.pack(side="left")
-        bottom_spacer.pack_propagate(False)
 
         self.refresh_btn = tk.Button(
             bottom_btn_center,
@@ -199,6 +190,22 @@ class ToggleApp:
             foreground="#888",
         )
         self.status.pack(pady=(5, 10))
+
+        # Monitor illustration — expands to fill the vacant space in the controls
+        # column and stretches/shrinks with the window (redraws on <Configure>).
+        # The width/height below are only the minimum/initial size.
+        self.monitor_canvas = tk.Canvas(
+            self.controls_inner,
+            width=140,
+            height=90,
+            bg="#f3f4f6",
+            highlightthickness=1,
+            highlightbackground="#d1d5db",
+        )
+        self.monitor_canvas.pack(expand=True, fill="both", pady=(5, 0))
+        self.monitor_canvas.bind("<Configure>", lambda *_: self._draw_monitor_layout())
+        self._draw_monitor_layout()
+        self.target_display.trace_add("write", self._on_target_display_changed)
 
         self.app_frame = ttk.LabelFrame(self.apps_wrapper, text="", padding=10)
         self.app_frame.pack(expand=True, fill="both")
@@ -405,6 +412,7 @@ class ToggleApp:
                 for b in self.browsers
             }
 
+        row_bg = tk.Frame(self.inner, bg=self._tint_neutral)
         left_panel = ttk.Frame(self.inner)
 
         cb = ttk.Checkbutton(
@@ -415,13 +423,16 @@ class ToggleApp:
         name_entry = ttk.Entry(self.inner, textvariable=name_var, width=22, state="readonly")
 
         browser_cell = ttk.Frame(left_panel)
+        browser_canvases = []
         if self.browsers:
             for b in self.browsers:
-                self._make_browser_icon(browser_cell, b, browser_vars[b["name"]], row_id)
+                c = self._make_browser_icon(browser_cell, b, browser_vars[b["name"]], row_id)
+                browser_canvases.append(c)
         else:
             ttk.Label(browser_cell, text="—", foreground="#888").pack(side="left")
 
         radio_cell = ttk.Frame(left_panel)
+        radios = []
         for j in range(3):
             rb = ttk.Radiobutton(
                 radio_cell,
@@ -431,6 +442,7 @@ class ToggleApp:
                 command=lambda rid=row_id: self.on_target_changed(rid),
             )
             rb.pack(side="left", padx=2)
+            radios.append(rb)
             if j >= self.monitor_count:
                 rb.state(["disabled"])
 
@@ -456,15 +468,23 @@ class ToggleApp:
             "radio_cell": radio_cell,
             "del_btn": del_btn,
             "left_panel": left_panel,
+            "row_bg": row_bg,
+            "radios": radios,
+            "browser_canvases": browser_canvases,
         }
         self.rows.append(row)
-        for w in (left_panel, name_entry, addr_entry, del_btn):
+        check_var.trace_add("write", lambda *_a, r=row: self._apply_row_tint(r))
+        target_var.trace_add("write", lambda *_a, r=row: self._apply_row_tint(r))
+        for w in (row_bg, left_panel, name_entry, addr_entry, del_btn):
             self._bind_wheel(w, self.canvas)
+        self._apply_row_tint(row)
         return row
 
     def _reflow_grid(self):
         for i, row in enumerate(self.rows):
             grid_row = i
+            row["row_bg"].grid(row=grid_row, column=0, columnspan=4, sticky="nsew")
+            row["row_bg"].lower()
             row["left_panel"].grid(row=grid_row, column=0, sticky="w", padx=(0, 12), pady=2)
             row["cb"].grid(row=0, column=0, padx=(0, 6))
             row["radio_cell"].grid(row=0, column=1, sticky="w", padx=(0, 12))
@@ -479,21 +499,109 @@ class ToggleApp:
                 return r
         return None
 
+    def _setup_row_styles(self):
+        """Switch to a Tk-drawn theme so ttk widgets honor background colors
+        (the native Windows theme ignores them), then keep the app's light look
+        and register green/blue tinted variants used for row coloring."""
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        base = self._tint_neutral
+        style.configure(".", background=base, foreground="#374151")
+        style.configure("TFrame", background=base)
+        style.configure("TLabel", background=base)
+        style.configure("TLabelframe", background=base)
+        style.configure("TLabelframe.Label", background=base)
+        style.configure("TCheckbutton", background=base)
+        style.map("TCheckbutton", background=[("active", base)])
+        style.configure("TRadiobutton", background=base)
+        style.map("TRadiobutton", background=[("active", base)])
+        style.configure("TEntry", fieldbackground="white")
+        style.map("TEntry", fieldbackground=[("readonly", "white"), ("disabled", base)])
+
+        for key, color in (("Green", self._tint_green), ("Blue", self._tint_blue)):
+            style.configure(f"{key}.TFrame", background=color)
+            style.configure(f"{key}.TLabel", background=color)
+            style.configure(f"{key}.TCheckbutton", background=color)
+            style.map(f"{key}.TCheckbutton", background=[("active", color)])
+            style.configure(f"{key}.TRadiobutton", background=color)
+            style.map(f"{key}.TRadiobutton", background=[("active", color)])
+            style.configure(f"{key}.TEntry", fieldbackground=color)
+            style.map(
+                f"{key}.TEntry",
+                fieldbackground=[("readonly", color), ("disabled", color)],
+            )
+            style.configure(f"{key}.TButton", background=color)
+            style.map(f"{key}.TButton", background=[("active", color)])
+
+    def _tint_for_target(self, effective_target):
+        """Return (style_key, color) for a row pointed at effective_target:
+        green when it matches the selected display, blue otherwise."""
+        if effective_target == self.target_display.get():
+            return "Green", self._tint_green
+        return "Blue", self._tint_blue
+
+    def _apply_row_tint(self, row):
+        if "row_bg" not in row:
+            return
+        if row["check_var"].get():
+            key, color = self._tint_for_target(self._resolve_target(row["row_id"]))
+        else:
+            key, color = None, self._tint_neutral
+        suffix = f"{key}." if key else ""
+        row["row_bg"].config(bg=color)
+        row["left_panel"].config(style=f"{suffix}TFrame")
+        row["radio_cell"].config(style=f"{suffix}TFrame")
+        row["browser_cell"].config(style=f"{suffix}TFrame")
+        row["cb"].config(style=f"{suffix}TCheckbutton")
+        for rb in row["radios"]:
+            rb.config(style=f"{suffix}TRadiobutton")
+        row["name_entry"].config(style=f"{suffix}TEntry")
+        row["addr_entry"].config(style=f"{suffix}TEntry")
+        row["del_btn"].config(style=f"{suffix}TButton")
+        for c in row["browser_canvases"]:
+            c.config(bg=color)
+            c._redraw()
+
+    def _apply_app_row_tint(self, row):
+        if "row_bg" not in row:
+            return
+        if row["check_var"].get():
+            key, color = self._tint_for_target(self._resolve_app_target(row["row_id"]))
+        else:
+            key, color = None, self._tint_neutral
+        suffix = f"{key}." if key else ""
+        row["row_bg"].config(bg=color)
+        row["radio_cell"].config(style=f"{suffix}TFrame")
+        row["cb"].config(style=f"{suffix}TCheckbutton")
+        for rb in row["radios"]:
+            rb.config(style=f"{suffix}TRadiobutton")
+        row["name_entry"].config(style=f"{suffix}TEntry")
+        row["path_entry"].config(style=f"{suffix}TEntry")
+        row["display_lbl"].config(style=f"{suffix}TLabel")
+        row["del_btn"].config(style=f"{suffix}TButton")
+
     def _draw_monitor_layout(self):
         canvas = self.monitor_canvas
         canvas.delete("all")
+        cw = canvas.winfo_width()
+        ch = canvas.winfo_height()
+        if cw <= 1 or ch <= 1:  # not laid out yet — fall back to requested size
+            cw = int(canvas["width"])
+            ch = int(canvas["height"])
         try:
             monitors = get_monitors()
         except Exception:
             monitors = []
         if not monitors:
             canvas.create_text(
-                70, 45, text="No monitors", fill="#888", font=("Segoe UI", 9)
+                cw / 2, ch / 2, text="No monitors", fill="#888", font=("Segoe UI", 9)
             )
             return
 
-        cw = int(canvas["width"])
-        ch = int(canvas["height"])
         pad = 6
         min_x = min(m.x for m in monitors)
         min_y = min(m.y for m in monitors)
@@ -508,6 +616,7 @@ class ToggleApp:
         off_y = (ch - draw_h) / 2 - min_y * scale
 
         selected = self.target_display.get()
+        labels = self._labels_by_monitor()
         for i, m in enumerate(monitors):
             x0 = off_x + m.x * scale
             y0 = off_y + m.y * scale
@@ -521,6 +630,7 @@ class ToggleApp:
             canvas.create_rectangle(
                 x0, y0, x1, y1, fill=fill, outline=outline, width=1, tags=(tag,)
             )
+            self._draw_tiled_sites(canvas, x0, y0, x1, y1, labels.get(i, []), is_selected, tag)
             canvas.create_text(
                 (x0 + x1) / 2,
                 (y0 + y1) / 2,
@@ -532,6 +642,58 @@ class ToggleApp:
             canvas.tag_bind(tag, "<Button-1>", lambda *_, idx=i: self._select_monitor(idx))
             canvas.tag_bind(tag, "<Enter>", lambda *_: canvas.config(cursor="hand2"))
             canvas.tag_bind(tag, "<Leave>", lambda *_: canvas.config(cursor=""))
+
+    def _draw_tiled_sites(self, canvas, x0, y0, x1, y1, labels, is_selected, tag):
+        count = len(labels)
+        if count <= 0:
+            return
+        inset = 3
+        gap = 1
+        avail_h = (y1 - y0) - 2 * inset - gap * (count - 1)
+        if avail_h <= 0:
+            return
+        band_h = avail_h / count
+        band_fill = "#dcfce7" if is_selected else "#bfdbfe"
+        band_outline = "#15803d" if is_selected else "#3b82f6"
+        text_fill = "#14532d" if is_selected else "#1e3a8a"
+        bx0 = x0 + inset
+        bx1 = x1 - inset
+        avail_w = bx1 - bx0
+        for k, label in enumerate(labels):
+            by0 = y0 + inset + k * (band_h + gap)
+            by1 = by0 + band_h
+            canvas.create_rectangle(
+                bx0, by0, bx1, by1,
+                fill=band_fill, outline=band_outline, width=1, tags=(tag,),
+            )
+            text = self._fit_band_text(canvas, label, avail_w)
+            if text and band_h >= 7:
+                canvas.create_text(
+                    (bx0 + bx1) / 2,
+                    (by0 + by1) / 2,
+                    text=text,
+                    fill=text_fill,
+                    font=("Segoe UI", 7),
+                    tags=(tag,),
+                )
+
+    def _fit_band_text(self, canvas, label, avail_w):
+        if not label or avail_w <= 6:
+            return ""
+        font = ("Segoe UI", 7)
+        probe = canvas.create_text(0, -100, text=label, font=font, anchor="nw")
+        bbox = canvas.bbox(probe)
+        full_w = (bbox[2] - bbox[0]) if bbox else 0
+        canvas.delete(probe)
+        if full_w <= avail_w:
+            return label
+        approx_char_w = full_w / max(len(label), 1)
+        max_chars = max(int(avail_w / approx_char_w) - 1, 1)
+        if max_chars >= len(label):
+            return label
+        if max_chars <= 1:
+            return label[:1]
+        return label[: max_chars - 1] + "…"
 
     def _select_monitor(self, idx):
         if 0 <= idx < self.monitor_count:
@@ -546,32 +708,33 @@ class ToggleApp:
             row["target_var"].set(idx)
             self.on_target_changed(row["row_id"])
         for row in self.app_rows:
+            self._apply_app_row_tint(row)
+        for row in self.app_rows:
             row["target_var"].set(idx)
             self.on_app_target_changed(row["row_id"])
 
     def _make_browser_icon(self, parent, browser, var, row_id):
         size = 22
-        try:
-            bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
-        except Exception:
-            bg = "#f0f0f0"
         canvas = tk.Canvas(
             parent,
             width=size,
             height=size,
             highlightthickness=0,
-            bg=bg,
+            bg=self._tint_neutral,
             cursor="hand2",
         )
         canvas.pack(side="left", padx=2)
 
         def draw(*_):
             canvas.delete("all")
+            bg = canvas["bg"]
             if var.get():
                 canvas.create_rectangle(
                     0, 0, size - 1, size - 1, outline="#16a34a", width=2
                 )
             self._draw_browser_glyph(canvas, browser["name"], size, bg)
+
+        canvas._redraw = draw
 
         def on_click(*_):
             new_state = not var.get()
@@ -700,6 +863,7 @@ class ToggleApp:
             else:
                 parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
+        self._draw_monitor_layout()
 
     def _update_check_count(self):
         if not hasattr(self, "header_check_count"):
@@ -1067,7 +1231,7 @@ class ToggleApp:
                 arrage.close_windows(list(per_row.values()))
             except Exception:
                 pass
-        for key in ("left_panel", "name_entry", "addr_entry", "del_btn"):
+        for key in ("left_panel", "name_entry", "addr_entry", "del_btn", "row_bg"):
             try:
                 row[key].destroy()
             except Exception:
@@ -1099,6 +1263,27 @@ class ToggleApp:
             if mon_idx is None:
                 continue
             groups.setdefault(mon_idx, []).append(hwnd)
+        return groups
+
+    def _labels_by_monitor(self):
+        groups = {}
+        for rid, per_row in self.hwnds.items():
+            mon_idx = self.site_monitor.get(rid)
+            if mon_idx is None:
+                continue
+            row = self._row(rid)
+            name = row["name_var"].get().strip() if row else ""
+            url = row["url_var"].get().strip() if row else ""
+            label = name or url or "site"
+            groups.setdefault(mon_idx, []).extend(label for _ in per_row.values())
+        for rid, hwnd in self.app_hwnds.items():
+            mon_idx = self.app_monitor.get(rid)
+            if mon_idx is None:
+                continue
+            row = self._app_row(rid)
+            name = row["name_var"].get().strip() if row else ""
+            path = row["path_var"].get().strip() if row else ""
+            groups.setdefault(mon_idx, []).append(name or path or "app")
         return groups
 
     def _retile_displays(self, indices):
@@ -1165,6 +1350,7 @@ class ToggleApp:
             value=saved_target if isinstance(saved_target, int) and 0 <= saved_target < self.monitor_count else -1
         )
 
+        row_bg = tk.Frame(self.app_inner, bg=self._tint_neutral)
         cb = ttk.Checkbutton(
             self.app_inner,
             variable=check_var,
@@ -1174,6 +1360,7 @@ class ToggleApp:
         display_lbl = ttk.Label(self.app_inner, text="—", foreground="#888", width=12)
 
         radio_cell = ttk.Frame(self.app_inner)
+        radios = []
         for j in range(3):
             rb = ttk.Radiobutton(
                 radio_cell,
@@ -1183,6 +1370,7 @@ class ToggleApp:
                 command=lambda rid=row_id: self.on_app_target_changed(rid),
             )
             rb.pack(side="left", padx=2)
+            radios.append(rb)
             if j >= self.monitor_count:
                 rb.state(["disabled"])
 
@@ -1206,15 +1394,22 @@ class ToggleApp:
             "cb": cb,
             "radio_cell": radio_cell,
             "del_btn": del_btn,
+            "row_bg": row_bg,
+            "radios": radios,
         }
         self.app_rows.append(row)
-        for w in (cb, name_entry, display_lbl, radio_cell, path_entry, del_btn):
+        check_var.trace_add("write", lambda *_a, r=row: self._apply_app_row_tint(r))
+        target_var.trace_add("write", lambda *_a, r=row: self._apply_app_row_tint(r))
+        for w in (row_bg, cb, name_entry, display_lbl, radio_cell, path_entry, del_btn):
             self._bind_wheel(w, self.app_canvas)
+        self._apply_app_row_tint(row)
         return row
 
     def _reflow_app_grid(self):
         for i, row in enumerate(self.app_rows):
             grid_row = i + 1
+            row["row_bg"].grid(row=grid_row, column=0, columnspan=6, sticky="nsew")
+            row["row_bg"].lower()
             row["cb"].grid(row=grid_row, column=0, padx=(0, 6), pady=2)
             row["name_entry"].grid(row=grid_row, column=1, sticky="ew", padx=(0, 12), pady=2)
             row["display_lbl"].grid(row=grid_row, column=2, sticky="w", padx=(0, 12), pady=2)
@@ -1291,6 +1486,7 @@ class ToggleApp:
         displayed = len(self.app_hwnds)
         parts = [f"{total} apps", f"{displayed} displayed"]
         self.app_frame.config(text=" | ".join(parts))
+        self._draw_monitor_layout()
 
     def _path_of(self, row_id):
         row = self._app_row(row_id)
@@ -1429,7 +1625,7 @@ class ToggleApp:
                 arrage.close_windows([hwnd])
             except Exception:
                 pass
-        for key in ("cb", "name_entry", "display_lbl", "radio_cell", "path_entry", "del_btn"):
+        for key in ("cb", "name_entry", "display_lbl", "radio_cell", "path_entry", "del_btn", "row_bg"):
             try:
                 row[key].destroy()
             except Exception:
@@ -1536,6 +1732,7 @@ class ToggleApp:
         req_h = (
             self.button_row.winfo_reqheight()
             + self.status.winfo_reqheight()
+            + self.monitor_canvas.winfo_reqheight()
             + self.bottom_buttons.winfo_reqheight()
             + 60
         )

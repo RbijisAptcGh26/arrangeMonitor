@@ -6,12 +6,20 @@ from screeninfo import get_monitors
 
 import arrage
 
+__version__ = "1.0.0"
+
 
 class ToggleApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Arrange Monitor")
         self.root.attributes("-topmost", True)
+
+        menubar = tk.Menu(self.root)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About", command=self._show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        self.root.config(menu=menubar)
 
         dpi = self.root.winfo_fpixels("1i")
         w, h = int(13 * dpi), int(5 * dpi)
@@ -707,6 +715,14 @@ class ToggleApp:
             bbox = self.inner.grid_bbox(col, 0)
             if bbox:
                 self.header_frame.columnconfigure(col, minsize=bbox[2])
+
+    def _show_about(self):
+        messagebox.showinfo(
+            "About Arrange Monitor",
+            f"Arrange Monitor\nVersion {__version__}\n\n"
+            "Launches selected browser sites and apps,\n"
+            "and tiles them across a chosen display.",
+        )
 
     def _on_root_configure(self, event):
         if event.widget is not self.root:

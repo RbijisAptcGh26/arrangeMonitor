@@ -9,6 +9,63 @@ import arrage
 __version__ = "1.0.0"
 
 
+class ToggleSwitch(tk.Canvas):
+    """A simple pill-shaped on/off switch, drop-in replacement for the old
+    text button (click toggles state; state is set programmatically via
+    set_state)."""
+
+    def __init__(self, parent, command=None, width=56, height=28,
+                 on_color="#16a34a", off_color="#bbbbbb", disabled_color="#d1d5db", **kwargs):
+        bg = kwargs.pop("bg", parent["bg"] if "bg" in parent.keys() else "#f0f0f0")
+        super().__init__(parent, width=width, height=height, highlightthickness=0, bg=bg, cursor="hand2", **kwargs)
+        self.command = command
+        self._sw = width
+        self._sh = height
+        self._on_color = on_color
+        self._off_color = off_color
+        self._disabled_color = disabled_color
+        self._is_on = False
+        self._disabled = False
+        self.bind("<Button-1>", self._on_click)
+        self._redraw()
+
+    def _on_click(self, _event):
+        if self._disabled:
+            return
+        if self.command:
+            self.command()
+
+    def set_state(self, is_on):
+        self._is_on = bool(is_on)
+        self._redraw()
+
+    def get_state(self):
+        return self._is_on
+
+    def set_disabled(self, disabled):
+        self._disabled = bool(disabled)
+        self.config(cursor="arrow" if self._disabled else "hand2")
+        self._redraw()
+
+    def _redraw(self):
+        self.delete("all")
+        w, h = self._sw, self._sh
+        r = h / 2
+        if self._disabled:
+            color = self._disabled_color
+        else:
+            color = self._on_color if self._is_on else self._off_color
+        self.create_oval(0, 0, h, h, fill=color, outline=color)
+        self.create_oval(w - h, 0, w, h, fill=color, outline=color)
+        self.create_rectangle(r, 0, w - r, h, fill=color, outline=color)
+        knob_d = h - 4
+        knob_x = (w - h + 2) if self._is_on else 2
+        self.create_oval(
+            knob_x, 2, knob_x + knob_d, 2 + knob_d,
+            fill="white", outline="#e5e7eb",
+        )
+
+
 class ToggleApp:
     def __init__(self):
         self.root = tk.Tk()
@@ -134,18 +191,10 @@ class ToggleApp:
         self.button_row = ttk.Frame(self.controls_inner)
         self.button_row.pack(pady=(10, 10))
 
-        self.toggle_btn = tk.Button(
+        self.toggle_btn = ToggleSwitch(
             self.button_row,
-            text="On",
-            font=("Segoe UI", 12, "bold"),
-            width=8,
-            height=1,
-            bg="#bbbbbb",
-            fg="white",
-            relief="flat",
-            activebackground="#999999",
             command=self.toggle,
-            cursor="hand2",
+            bg=self._tint_neutral,
         )
         self.toggle_btn.pack(side="left")
 
@@ -280,6 +329,24 @@ class ToggleApp:
         self.app_header_del.grid(row=0, column=5, sticky="w", pady=(0, 4))
 
         list_frame = self.list_frame
+
+        search_bar = ttk.Frame(list_frame)
+        search_bar.pack(side="top", fill="x", pady=(0, 6))
+        ttk.Label(search_bar, text="Find site:").pack(side="left", padx=(0, 6))
+        self.site_search_var = tk.StringVar(value="")
+        self.site_search_box = ttk.Entry(
+            search_bar,
+            textvariable=self.site_search_var,
+            width=30,
+        )
+        self.site_search_box.pack(side="left")
+        self._suggest_popup = None
+        self._suggest_listbox = None
+        self.site_search_box.bind("<KeyRelease>", self._on_site_search_keyrelease)
+        self.site_search_box.bind("<Return>", self._on_site_search_return)
+        self.site_search_box.bind("<Escape>", lambda *_: self._hide_suggestions())
+        self.site_search_box.bind("<Down>", self._focus_suggestions)
+        self.site_search_box.bind("<FocusOut>", lambda *_: self.root.after(150, self._hide_suggestions))
 
         toggle_bar = ttk.Frame(list_frame)
         toggle_bar.pack(side="top", fill="x", pady=(0, 6))
@@ -784,7 +851,7 @@ class ToggleApp:
 
     def set_busy(self, busy):
         self.busy = busy
-        self.toggle_btn.config(state="disabled" if busy else "normal")
+        self.toggle_btn.set_disabled(busy)
         self._update_refresh_state()
 
     def _update_refresh_state(self):
@@ -864,6 +931,107 @@ class ToggleApp:
                 parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
         self._draw_monitor_layout()
+
+    def _all_site_names(self):
+        return sorted({r["name_var"].get().strip() for r in self.rows if r["name_var"].get().strip()})
+
+    def _on_site_search_keyrelease(self, event=None):
+        if event is not None and event.keysym in ("Escape", "Return", "Down", "Up"):
+            return
+        typed = self.site_search_var.get().strip()
+        if len(typed) < 3:
+            self._hide_suggestions()
+            return
+        typed_l = typed.lower()
+        matches = [n for n in self._all_site_names() if typed_l in n.lower()]
+        if not matches:
+            self._hide_suggestions()
+            return
+        self._show_suggestions(matches)
+
+    def _show_suggestions(self, matches):
+        if self._suggest_popup is None:
+            self._suggest_popup = tk.Toplevel(self.root)
+            self._suggest_popup.overrideredirect(True)
+            self._suggest_popup.attributes("-topmost", True)
+            self._suggest_listbox = tk.Listbox(
+                self._suggest_popup, activestyle="dotbox", height=6, exportselection=False
+            )
+            self._suggest_listbox.pack(fill="both", expand=True)
+            self._suggest_listbox.bind("<Return>", self._on_suggestion_chosen)
+            self._suggest_listbox.bind("<Double-Button-1>", self._on_suggestion_chosen)
+            self._suggest_listbox.bind("<ButtonRelease-1>", self._on_suggestion_chosen)
+            self._suggest_listbox.bind("<FocusOut>", self._on_search_focus_out)
+        self._suggest_listbox.delete(0, "end")
+        for m in matches:
+            self._suggest_listbox.insert("end", m)
+        self._suggest_listbox.selection_clear(0, "end")
+        x = self.site_search_box.winfo_rootx()
+        y = self.site_search_box.winfo_rooty() + self.site_search_box.winfo_height()
+        w = self.site_search_box.winfo_width()
+        height = min(len(matches), 6) * 18 + 4
+        self._suggest_popup.geometry(f"{w}x{height}+{x}+{y}")
+        self._suggest_popup.deiconify()
+
+    def _hide_suggestions(self):
+        if self._suggest_popup is not None:
+            self._suggest_popup.withdraw()
+
+    def _on_search_focus_out(self, _event=None):
+        self.root.after(150, self._maybe_hide_suggestions)
+
+    def _maybe_hide_suggestions(self):
+        focused = self.root.focus_get()
+        if focused is self.site_search_box or focused is self._suggest_listbox:
+            return
+        self._hide_suggestions()
+
+    def _focus_suggestions(self, _event=None):
+        if self._suggest_popup is not None and self._suggest_popup.winfo_viewable():
+            self._suggest_listbox.focus_set()
+            self._suggest_listbox.selection_set(0)
+            self._suggest_listbox.activate(0)
+            return "break"
+
+    def _on_suggestion_chosen(self, event=None):
+        sel = self._suggest_listbox.curselection()
+        if not sel:
+            return
+        name = self._suggest_listbox.get(sel[0])
+        self._apply_site_search_selection(name)
+        return "break"
+
+    def _on_site_search_return(self, _event=None):
+        if self._suggest_popup is not None and self._suggest_popup.winfo_viewable():
+            sel = self._suggest_listbox.curselection()
+            if sel:
+                self._apply_site_search_selection(self._suggest_listbox.get(sel[0]))
+                return
+        name = self.site_search_var.get().strip()
+        if name:
+            self._apply_site_search_selection(name)
+
+    def _apply_site_search_selection(self, name):
+        self.site_search_var.set(name)
+        self._hide_suggestions()
+        for row in self.rows:
+            if row["name_var"].get().strip().lower() == name.lower():
+                self._scroll_row_into_view(row)
+                return
+
+    def _scroll_row_into_view(self, row):
+        self.canvas.update_idletasks()
+        row_frame = row["left_panel"]
+        y = row_frame.winfo_y()
+        total_h = self.inner.winfo_height() or 1
+        fraction = max(0, min(1, y / total_h))
+        self.canvas.yview_moveto(fraction)
+        self._flash_row(row)
+
+    def _flash_row(self, row):
+        original = row["row_bg"]["bg"]
+        row["row_bg"].config(bg="#fde68a")
+        self.root.after(600, lambda: row["row_bg"].config(bg=original))
 
     def _update_check_count(self):
         if not hasattr(self, "header_check_count"):
@@ -1011,7 +1179,7 @@ class ToggleApp:
         self.hwnds = {rid: dict(per_row) for rid, (per_row, _) in opened.items()}
         self.site_monitor = {rid: mon_idx for rid, (_, mon_idx) in opened.items()}
         self.is_on = True
-        self.toggle_btn.config(text="Off", bg="#16a34a", activebackground="#15803d")
+        self.toggle_btn.set_state(True)
         self.status.config(text="On", foreground="#16a34a")
         for rid, mon_idx in self.site_monitor.items():
             self._set_display_label(rid, mon_idx)
@@ -1032,7 +1200,7 @@ class ToggleApp:
         self.hwnds = {}
         self.site_monitor = {}
         self.is_on = False
-        self.toggle_btn.config(text="On", bg="#bbbbbb", activebackground="#999999")
+        self.toggle_btn.set_state(False)
         self.status.config(text="Off", foreground="#888")
         self._update_refresh_state()
         self._update_sites_label()

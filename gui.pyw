@@ -1,3 +1,6 @@
+import ctypes
+import ctypes.wintypes
+import re
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -7,6 +10,26 @@ from screeninfo import get_monitors
 import arrage
 
 __version__ = "1.0.0"
+
+_SINGLE_INSTANCE_MUTEX_NAME = "Local\\ArrangeMonitor_SingleInstance_Mutex"
+_ERROR_ALREADY_EXISTS = 183
+
+
+def _acquire_single_instance_lock():
+    """Returns (handle, already_running). Caller must keep handle referenced
+    for the lifetime of the process so the mutex isn't released early."""
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_MUTEX_NAME)
+    already_running = kernel32.GetLastError() == _ERROR_ALREADY_EXISTS
+    return handle, already_running
+
+
+def _focus_existing_instance():
+    hwnd = ctypes.windll.user32.FindWindowW(None, "Arrange Monitor")
+    if hwnd:
+        SW_RESTORE = 9
+        ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
 
 
 class ToggleSwitch(tk.Canvas):
@@ -139,13 +162,6 @@ class ToggleApp:
         self.top_frame.columnconfigure(1, weight=1, uniform="halves")
         self.top_frame.rowconfigure(0, weight=1)
 
-        self.bottom_buttons = ttk.Frame(container)
-        self.bottom_buttons.pack(side="bottom", fill="x", pady=(10, 0))
-        self.bottom_buttons.columnconfigure(0, weight=1, uniform="bot_halves")
-        self.bottom_buttons.columnconfigure(1, weight=1, uniform="bot_halves")
-        self.bottom_buttons_left = ttk.Frame(self.bottom_buttons)
-        self.bottom_buttons_left.grid(row=0, column=0, sticky="nsew")
-
         self.bottom_frame = ttk.Frame(container)
         self.bottom_frame.pack(side="top", expand=True, fill="both", pady=(10, 0))
 
@@ -160,8 +176,17 @@ class ToggleApp:
         self.apps_wrapper = ttk.Frame(self.bottom_frame)
         self.apps_wrapper.pack(expand=True, fill="both")
 
+        self.top_controls_panel = ttk.LabelFrame(self.controls_inner, text="", padding=10)
+        self.top_controls_panel.pack(side="top", fill="x")
+
+        self.top_controls_content = ttk.Frame(self.top_controls_panel)
+        self.top_controls_content.pack(side="left", expand=True, fill="both")
+
+        self.top_controls_right = ttk.Frame(self.top_controls_panel)
+        self.top_controls_right.pack(side="right", fill="y", padx=(10, 0))
+
         self.display_info = ttk.Label(
-            self.controls_inner,
+            self.top_controls_content,
             text=display_text,
             font=("Segoe UI", 11, "bold"),
             foreground="#374151",
@@ -174,7 +199,7 @@ class ToggleApp:
             default_index = saved_target
         self.target_display = tk.IntVar(value=default_index)
 
-        self.radio_frame = ttk.Frame(self.controls_inner)
+        self.radio_frame = ttk.Frame(self.top_controls_content)
         self.radio_frame.pack(pady=(0, 10))
 
         for i in range(3):
@@ -188,21 +213,8 @@ class ToggleApp:
             if i >= monitor_count:
                 rb.state(["disabled"])
 
-        self.button_row = ttk.Frame(self.controls_inner)
-        self.button_row.pack(pady=(10, 10))
-
-        self.toggle_btn = ToggleSwitch(
-            self.button_row,
-            command=self.toggle,
-            bg=self._tint_neutral,
-        )
-        self.toggle_btn.pack(side="left")
-
-        bottom_btn_center = ttk.Frame(self.bottom_buttons_left)
-        bottom_btn_center.pack()
-
         self.refresh_btn = tk.Button(
-            bottom_btn_center,
+            self.top_controls_right,
             text="Refresh",
             font=("Segoe UI", 12, "bold"),
             width=10,
@@ -215,10 +227,10 @@ class ToggleApp:
             cursor="hand2",
             state="disabled",
         )
-        self.refresh_btn.pack(side="left", padx=(0, 10))
+        self.refresh_btn.pack(side="top", pady=(0, 10))
 
         self.compact_btn = tk.Button(
-            bottom_btn_center,
+            self.top_controls_right,
             text="Compact",
             font=("Segoe UI", 12, "bold"),
             width=10,
@@ -230,15 +242,7 @@ class ToggleApp:
             command=self._toggle_compact,
             cursor="hand2",
         )
-        self.compact_btn.pack(side="left")
-
-        self.status = ttk.Label(
-            self.controls_inner,
-            text="Off",
-            font=("Segoe UI", 18, "bold"),
-            foreground="#888",
-        )
-        self.status.pack(pady=(5, 10))
+        self.compact_btn.pack(side="top")
 
         # Monitor illustration — expands to fill the vacant space in the controls
         # column and stretches/shrinks with the window (redraws on <Configure>).
@@ -253,6 +257,10 @@ class ToggleApp:
         )
         self.monitor_canvas.pack(expand=True, fill="both", pady=(5, 0))
         self.monitor_canvas.bind("<Configure>", lambda *_: self._draw_monitor_layout())
+        self.monitor_canvas.bind("<B1-Motion>", self._on_band_motion)
+        self.monitor_canvas.bind("<ButtonRelease-1>", self._on_band_release)
+        self._monitor_rects = {}
+        self._drag_data = None
         self._draw_monitor_layout()
         self.target_display.trace_add("write", self._on_target_display_changed)
 
@@ -330,12 +338,12 @@ class ToggleApp:
 
         list_frame = self.list_frame
 
-        search_bar = ttk.Frame(list_frame)
-        search_bar.pack(side="top", fill="x", pady=(0, 6))
-        ttk.Label(search_bar, text="Find site:").pack(side="left", padx=(0, 6))
+        self.search_bar = ttk.Frame(self.top_controls_content)
+        self.search_bar.pack(side="top", fill="x", pady=(0, 6))
+        ttk.Label(self.search_bar, text="Find site:").pack(side="left", padx=(0, 6))
         self.site_search_var = tk.StringVar(value="")
         self.site_search_box = ttk.Entry(
-            search_bar,
+            self.search_bar,
             textvariable=self.site_search_var,
             width=30,
         )
@@ -345,8 +353,43 @@ class ToggleApp:
         self.site_search_box.bind("<KeyRelease>", self._on_site_search_keyrelease)
         self.site_search_box.bind("<Return>", self._on_site_search_return)
         self.site_search_box.bind("<Escape>", lambda *_: self._hide_suggestions())
-        self.site_search_box.bind("<Down>", self._focus_suggestions)
+        self.site_search_box.bind("<Down>", self._on_search_arrow)
+        self.site_search_box.bind("<Up>", self._on_search_arrow)
         self.site_search_box.bind("<FocusOut>", lambda *_: self.root.after(150, self._hide_suggestions))
+        for digit in "123456789":
+            self.site_search_box.bind(digit, self._on_search_box_digit_key)
+
+        self._search_selected_row_id = None
+        self.search_actions_bar = ttk.Frame(self.top_controls_content)
+        self.search_actions_bar.pack(side="top", fill="x", pady=(0, 6))
+        self.site_remove_btn = ttk.Button(
+            self.search_actions_bar, text="Remove", command=self._on_site_remove_btn
+        )
+        self.site_remove_btn.pack(side="left", padx=(0, 6))
+        self.site_remove_btn.bind("<Return>", lambda *_: self.site_remove_btn.invoke())
+        self.site_add_btn = ttk.Button(
+            self.search_actions_bar, text="Add", command=self._on_site_add_btn
+        )
+        self.site_add_btn.pack(side="left")
+        self.site_add_btn.bind("<Return>", lambda *_: self.site_add_btn.invoke())
+        for digit in "123456789":
+            self.site_remove_btn.bind(digit, self._on_search_digit_key)
+            self.site_add_btn.bind(digit, self._on_search_digit_key)
+
+        self.toggle_btn = ToggleSwitch(
+            self.search_actions_bar,
+            command=self.toggle,
+            bg=self._tint_neutral,
+        )
+        self.toggle_btn.pack(side="left", padx=(20, 0))
+
+        self.status = ttk.Label(
+            self.search_actions_bar,
+            text="Off",
+            font=("Segoe UI", 18, "bold"),
+            foreground="#888",
+        )
+        self.status.pack(side="left", padx=(10, 0))
 
         toggle_bar = ttk.Frame(list_frame)
         toggle_bar.pack(side="top", fill="x", pady=(0, 6))
@@ -444,6 +487,51 @@ class ToggleApp:
         self._was_maximized = False
         self._normal_bottom_height = 0
         self.root.bind("<Configure>", self._on_root_configure)
+
+        self._enter_compact()
+        self._position_at_monitor_corner(monitor_index=0)
+
+    def _position_at_monitor_corner(self, monitor_index=0, corner="lower-right"):
+        try:
+            monitors = get_monitors()
+        except Exception:
+            return
+        if not monitors or monitor_index >= len(monitors):
+            return
+        mon = monitors[monitor_index]
+        self.root.update_idletasks()
+
+        # winfo_width/height only give the client area, not the outer window
+        # (title bar + borders). Measure the real outer rect via Win32 so the
+        # window doesn't overshoot the monitor edge.
+        try:
+            hwnd = self.root.winfo_id()
+            rect = ctypes.wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            outer_w = rect.right - rect.left
+            outer_h = rect.bottom - rect.top
+        except Exception:
+            outer_w = self.root.winfo_width()
+            outer_h = self.root.winfo_height()
+
+        # Bottom edge of the monitor's usable area (excludes the taskbar) so
+        # the window sits above the taskbar instead of behind/under it.
+        bottom = mon.y + mon.height
+        if mon.is_primary:
+            try:
+                work_rect = ctypes.wintypes.RECT()
+                SPI_GETWORKAREA = 0x0030
+                ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(work_rect), 0)
+                bottom = work_rect.bottom
+            except Exception:
+                pass
+
+        if corner == "lower-right":
+            x = mon.x + mon.width - outer_w
+            y = bottom - outer_h
+        else:
+            x, y = mon.x, mon.y
+        self.root.geometry(f"+{x}+{y}")
 
     def _make_row(self, name, url, row_id=None):
         if row_id is None:
@@ -683,12 +771,14 @@ class ToggleApp:
         off_y = (ch - draw_h) / 2 - min_y * scale
 
         selected = self.target_display.get()
-        labels = self._labels_by_monitor()
+        entries = self._entries_by_monitor()
+        self._monitor_rects = {}
         for i, m in enumerate(monitors):
             x0 = off_x + m.x * scale
             y0 = off_y + m.y * scale
             x1 = x0 + m.width * scale
             y1 = y0 + m.height * scale
+            self._monitor_rects[i] = (x0, y0, x1, y1)
             is_selected = i == selected
             fill = "#16a34a" if is_selected else "#e5e7eb"
             outline = "#15803d" if is_selected else "#9ca3af"
@@ -697,7 +787,7 @@ class ToggleApp:
             canvas.create_rectangle(
                 x0, y0, x1, y1, fill=fill, outline=outline, width=1, tags=(tag,)
             )
-            self._draw_tiled_sites(canvas, x0, y0, x1, y1, labels.get(i, []), is_selected, tag)
+            self._draw_tiled_sites(canvas, x0, y0, x1, y1, entries.get(i, []), is_selected, tag)
             canvas.create_text(
                 (x0 + x1) / 2,
                 (y0 + y1) / 2,
@@ -710,8 +800,8 @@ class ToggleApp:
             canvas.tag_bind(tag, "<Enter>", lambda *_: canvas.config(cursor="hand2"))
             canvas.tag_bind(tag, "<Leave>", lambda *_: canvas.config(cursor=""))
 
-    def _draw_tiled_sites(self, canvas, x0, y0, x1, y1, labels, is_selected, tag):
-        count = len(labels)
+    def _draw_tiled_sites(self, canvas, x0, y0, x1, y1, entries, is_selected, tag):
+        count = len(entries)
         if count <= 0:
             return
         inset = 3
@@ -726,12 +816,19 @@ class ToggleApp:
         bx0 = x0 + inset
         bx1 = x1 - inset
         avail_w = bx1 - bx0
-        for k, label in enumerate(labels):
+        for k, (kind, rid, label) in enumerate(entries):
             by0 = y0 + inset + k * (band_h + gap)
             by1 = by0 + band_h
+            band_tag = f"band-{kind}-{rid}"
+            is_drag_src = (
+                self._drag_data is not None
+                and self._drag_data["kind"] == kind
+                and self._drag_data["row_id"] == rid
+            )
+            fill = "#fde68a" if is_drag_src else band_fill
             canvas.create_rectangle(
                 bx0, by0, bx1, by1,
-                fill=band_fill, outline=band_outline, width=1, tags=(tag,),
+                fill=fill, outline=band_outline, width=1, tags=(tag, band_tag, "band"),
             )
             text = self._fit_band_text(canvas, label, avail_w)
             if text and band_h >= 7:
@@ -741,8 +838,10 @@ class ToggleApp:
                     text=text,
                     fill=text_fill,
                     font=("Segoe UI", 7),
-                    tags=(tag,),
+                    tags=(tag, band_tag, "band"),
                 )
+            canvas.tag_bind(band_tag, "<ButtonPress-1>",
+                             lambda e, k=kind, r=rid: self._on_band_press(e, k, r))
 
     def _fit_band_text(self, canvas, label, avail_w):
         if not label or avail_w <= 6:
@@ -766,6 +865,50 @@ class ToggleApp:
         if 0 <= idx < self.monitor_count:
             self.target_display.set(idx)
 
+    def _on_band_press(self, event, kind, row_id):
+        self._drag_data = {
+            "kind": kind,
+            "row_id": row_id,
+            "moved": False,
+            "start_x": event.x,
+            "start_y": event.y,
+        }
+
+    def _on_band_motion(self, event):
+        drag = self._drag_data
+        if drag is None:
+            return
+        if not drag["moved"]:
+            if abs(event.x - drag["start_x"]) < 3 and abs(event.y - drag["start_y"]) < 3:
+                return
+            drag["moved"] = True
+            self._draw_monitor_layout()
+            self.monitor_canvas.config(cursor="hand2")
+
+    def _on_band_release(self, event):
+        drag = self._drag_data
+        self._drag_data = None
+        if drag is None:
+            return
+        self.monitor_canvas.config(cursor="")
+        if not drag["moved"]:
+            self._draw_monitor_layout()
+            return
+        target_idx = self._monitor_at_point(event.x, event.y)
+        self._draw_monitor_layout()
+        if target_idx is None:
+            return
+        if drag["kind"] == "site":
+            self._transfer_row_to_display(drag["row_id"], target_idx)
+        else:
+            self._transfer_app_row_to_display(drag["row_id"], target_idx)
+
+    def _monitor_at_point(self, x, y):
+        for idx, (x0, y0, x1, y1) in self._monitor_rects.items():
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return idx
+        return None
+
     def _on_target_display_changed(self, *_):
         self._draw_monitor_layout()
         idx = self.target_display.get()
@@ -779,6 +922,7 @@ class ToggleApp:
         for row in self.app_rows:
             row["target_var"].set(idx)
             self.on_app_target_changed(row["row_id"])
+        self.site_search_box.focus_set()
 
     def _make_browser_icon(self, parent, browser, var, row_id):
         size = 22
@@ -955,17 +1099,30 @@ class ToggleApp:
             self._suggest_popup.overrideredirect(True)
             self._suggest_popup.attributes("-topmost", True)
             self._suggest_listbox = tk.Listbox(
-                self._suggest_popup, activestyle="dotbox", height=6, exportselection=False
+                self._suggest_popup,
+                activestyle="none",
+                height=6,
+                exportselection=False,
+                fg="#4b5563",
+                selectforeground="black",
+                selectbackground="#e5e7eb",
+                highlightthickness=0,
+                borderwidth=1,
+                relief="solid",
             )
             self._suggest_listbox.pack(fill="both", expand=True)
             self._suggest_listbox.bind("<Return>", self._on_suggestion_chosen)
-            self._suggest_listbox.bind("<Double-Button-1>", self._on_suggestion_chosen)
             self._suggest_listbox.bind("<ButtonRelease-1>", self._on_suggestion_chosen)
             self._suggest_listbox.bind("<FocusOut>", self._on_search_focus_out)
+            self._suggest_listbox.bind("<Motion>", self._on_suggestion_hover)
+            self._suggest_listbox.bind("<Leave>", self._on_suggestion_leave)
+            self._suggest_listbox.bind("<<ListboxSelect>>", self._on_suggestion_select)
         self._suggest_listbox.delete(0, "end")
         for m in matches:
             self._suggest_listbox.insert("end", m)
         self._suggest_listbox.selection_clear(0, "end")
+        self._suggest_active_idx = None
+        self._repaint_suggestions()
         x = self.site_search_box.winfo_rootx()
         y = self.site_search_box.winfo_rooty() + self.site_search_box.winfo_height()
         w = self.site_search_box.winfo_width()
@@ -986,27 +1143,65 @@ class ToggleApp:
             return
         self._hide_suggestions()
 
-    def _focus_suggestions(self, _event=None):
-        if self._suggest_popup is not None and self._suggest_popup.winfo_viewable():
-            self._suggest_listbox.focus_set()
-            self._suggest_listbox.selection_set(0)
-            self._suggest_listbox.activate(0)
+    def _on_search_arrow(self, event=None):
+        if self._suggest_popup is None or not self._suggest_popup.winfo_viewable():
+            return
+        size = self._suggest_listbox.size()
+        if size == 0:
             return "break"
+        step = -1 if event is not None and event.keysym == "Up" else 1
+        if self._suggest_active_idx is None:
+            idx = 0 if step == 1 else size - 1
+        else:
+            idx = (self._suggest_active_idx + step) % size
+        self._suggest_active_idx = idx
+        self._suggest_listbox.selection_clear(0, "end")
+        self._suggest_listbox.selection_set(idx)
+        self._suggest_listbox.activate(idx)
+        self._suggest_listbox.see(idx)
+        self._repaint_suggestions()
+        return "break"
+
+    def _repaint_suggestions(self):
+        for i in range(self._suggest_listbox.size()):
+            self._suggest_listbox.itemconfig(
+                i, fg="black" if i == self._suggest_active_idx else "#4b5563"
+            )
+
+    def _on_suggestion_hover(self, event):
+        self._suggest_active_idx = self._suggest_listbox.nearest(event.y)
+        self._repaint_suggestions()
+
+    def _on_suggestion_leave(self, _event=None):
+        self._suggest_active_idx = None
+        self._repaint_suggestions()
+
+    def _on_suggestion_select(self, _event=None):
+        sel = self._suggest_listbox.curselection()
+        self._suggest_active_idx = sel[0] if sel else None
+        self._repaint_suggestions()
 
     def _on_suggestion_chosen(self, event=None):
-        sel = self._suggest_listbox.curselection()
-        if not sel:
-            return
-        name = self._suggest_listbox.get(sel[0])
+        if event is not None and event.type == tk.EventType.ButtonRelease:
+            index = self._suggest_listbox.nearest(event.y)
+        else:
+            sel = self._suggest_listbox.curselection()
+            if not sel:
+                return
+            index = sel[0]
+        name = self._suggest_listbox.get(index)
         self._apply_site_search_selection(name)
         return "break"
 
     def _on_site_search_return(self, _event=None):
-        if self._suggest_popup is not None and self._suggest_popup.winfo_viewable():
-            sel = self._suggest_listbox.curselection()
-            if sel:
-                self._apply_site_search_selection(self._suggest_listbox.get(sel[0]))
-                return
+        if (
+            self._suggest_popup is not None
+            and self._suggest_popup.winfo_viewable()
+            and self._suggest_active_idx is not None
+        ):
+            name = self._suggest_listbox.get(self._suggest_active_idx)
+            self._apply_site_search_selection(name)
+            return
         name = self.site_search_var.get().strip()
         if name:
             self._apply_site_search_selection(name)
@@ -1014,10 +1209,117 @@ class ToggleApp:
     def _apply_site_search_selection(self, name):
         self.site_search_var.set(name)
         self._hide_suggestions()
+        self._search_selected_row_id = None
         for row in self.rows:
             if row["name_var"].get().strip().lower() == name.lower():
+                self._search_selected_row_id = row["row_id"]
                 self._scroll_row_into_view(row)
+                if row["check_var"].get():
+                    self.site_remove_btn.focus_set()
+                else:
+                    self.site_add_btn.focus_set()
+                self._transfer_row_to_named_display(row["row_id"], name)
                 return
+
+    def _transfer_row_to_named_display(self, row_id, name):
+        match = re.search(r"(\d+)$", name.strip())
+        if not match:
+            return
+        target_idx = int(match.group(1)) - 1
+        self._transfer_row_to_display(row_id, target_idx)
+
+    def _on_search_box_digit_key(self, event):
+        if (
+            self._suggest_popup is None
+            or not self._suggest_popup.winfo_viewable()
+            or self._suggest_active_idx is None
+        ):
+            return
+        digit = int(event.char)
+        target_idx = digit - 1
+        if not (0 <= target_idx < self.monitor_count):
+            return
+        name = self._suggest_listbox.get(self._suggest_active_idx)
+        self.site_search_var.set(name)
+        self._hide_suggestions()
+        for row in self.rows:
+            if row["name_var"].get().strip().lower() == name.lower():
+                self._search_selected_row_id = row["row_id"]
+                self._scroll_row_into_view(row)
+                self._transfer_row_to_display(row["row_id"], target_idx)
+                if not row["check_var"].get():
+                    row["check_var"].set(True)
+                    self.on_site_toggle(row["row_id"])
+                break
+        self._reset_site_search()
+        return "break"
+
+    def _on_search_digit_key(self, event):
+        digit = int(event.char)
+        target_idx = digit - 1
+        if not (0 <= target_idx < self.monitor_count):
+            return
+        row = self._row(self._search_selected_row_id)
+        if row is None:
+            return "break"
+        self._transfer_row_to_display(row["row_id"], target_idx)
+        if not row["check_var"].get():
+            row["check_var"].set(True)
+            self.on_site_toggle(row["row_id"])
+        self._reset_site_search()
+        return "break"
+
+    def _transfer_row_to_display(self, row_id, target_idx):
+        row = self._row(row_id)
+        if row is None or not (0 <= target_idx < self.monitor_count):
+            return
+        row["target_var"].set(target_idx)
+        if not self.is_on or self.busy or row_id not in self.hwnds:
+            return
+        current_idx = self.site_monitor.get(row_id)
+        if current_idx != target_idx:
+            old_idx = current_idx
+            self.site_monitor[row_id] = target_idx
+            self._set_display_label(row_id, target_idx)
+            self._retile_displays({i for i in (old_idx, target_idx) if i is not None})
+            self._update_sites_label()
+        else:
+            self._focus_row_on_display(row_id, target_idx)
+
+    def _focus_row_on_display(self, row_id, mon_idx):
+        groups = self._hwnds_by_monitor()
+        hwnds = groups.get(mon_idx, [])
+        own_hwnds = set(self.hwnds.get(row_id, {}).values())
+        for hwnd in hwnds:
+            if hwnd in own_hwnds:
+                arrage.maximize_window(hwnd)
+            else:
+                arrage.minimize_window(hwnd)
+
+    def _on_site_add_btn(self):
+        row = self._row(self._search_selected_row_id)
+        if row is None:
+            return
+        self._transfer_row_to_named_display(row["row_id"], row["name_var"].get())
+        if not row["check_var"].get():
+            row["check_var"].set(True)
+            self.on_site_toggle(row["row_id"])
+        self._reset_site_search()
+
+    def _on_site_remove_btn(self):
+        row = self._row(self._search_selected_row_id)
+        if row is None:
+            return
+        if row["check_var"].get():
+            row["check_var"].set(False)
+            self.on_site_toggle(row["row_id"])
+        self._reset_site_search()
+
+    def _reset_site_search(self):
+        self._search_selected_row_id = None
+        self.site_search_var.set("")
+        self._hide_suggestions()
+        self.site_search_box.focus_set()
 
     def _scroll_row_into_view(self, row):
         self.canvas.update_idletasks()
@@ -1228,6 +1530,7 @@ class ToggleApp:
         self._set_display_label(row_id, new_idx)
         self._retile_displays({old_idx, new_idx})
         self._update_sites_label()
+        self.site_search_box.focus_set()
 
     def on_site_toggle(self, row_id):
         if not self.is_on or self.busy:
@@ -1433,17 +1736,19 @@ class ToggleApp:
             groups.setdefault(mon_idx, []).append(hwnd)
         return groups
 
-    def _labels_by_monitor(self):
+    def _entries_by_monitor(self):
+        """Returns {monitor_index: [(kind, row_id, label), ...]} — one entry per
+        open site/app row, used to draw draggable bands in the monitor figure."""
         groups = {}
         for rid, per_row in self.hwnds.items():
             mon_idx = self.site_monitor.get(rid)
-            if mon_idx is None:
+            if mon_idx is None or not per_row:
                 continue
             row = self._row(rid)
             name = row["name_var"].get().strip() if row else ""
             url = row["url_var"].get().strip() if row else ""
             label = name or url or "site"
-            groups.setdefault(mon_idx, []).extend(label for _ in per_row.values())
+            groups.setdefault(mon_idx, []).append(("site", rid, label))
         for rid, hwnd in self.app_hwnds.items():
             mon_idx = self.app_monitor.get(rid)
             if mon_idx is None:
@@ -1451,7 +1756,7 @@ class ToggleApp:
             row = self._app_row(rid)
             name = row["name_var"].get().strip() if row else ""
             path = row["path_var"].get().strip() if row else ""
-            groups.setdefault(mon_idx, []).append(name or path or "app")
+            groups.setdefault(mon_idx, []).append(("app", rid, name or path or "app"))
         return groups
 
     def _retile_displays(self, indices):
@@ -1770,6 +2075,22 @@ class ToggleApp:
         self._retile_displays({old_idx, new_idx})
         self._update_apps_label()
 
+    def _transfer_app_row_to_display(self, row_id, target_idx):
+        row = self._app_row(row_id)
+        if row is None or not (0 <= target_idx < self.monitor_count):
+            return
+        row["target_var"].set(target_idx)
+        if self.busy or row_id not in self.app_hwnds:
+            return
+        current_idx = self.app_monitor.get(row_id)
+        if current_idx == target_idx:
+            return
+        old_idx = current_idx
+        self.app_monitor[row_id] = target_idx
+        self._set_app_display_label(row_id, target_idx)
+        self._retile_displays({i for i in (old_idx, target_idx) if i is not None})
+        self._update_apps_label()
+
     def on_add_app_row(self):
         row = self._make_app_row("", "")
         self._reflow_app_grid()
@@ -1881,8 +2202,6 @@ class ToggleApp:
         self.root.update_idletasks()
         self._saved_geometry = self.root.geometry()
 
-        self.display_info.pack_forget()
-        self.radio_frame.pack_forget()
         self.list_frame.grid_remove()
         self.bottom_frame.pack_forget()
         self.controls_frame.grid_configure(columnspan=2)
@@ -1896,12 +2215,10 @@ class ToggleApp:
         self._compact_mode = True
 
         self.root.update_idletasks()
-        req_w = max(self.button_row.winfo_reqwidth() + 60, 600)
+        req_w = max(self.top_controls_panel.winfo_reqwidth() + 60, 600)
         req_h = (
-            self.button_row.winfo_reqheight()
-            + self.status.winfo_reqheight()
+            self.top_controls_panel.winfo_reqheight()
             + self.monitor_canvas.winfo_reqheight()
-            + self.bottom_buttons.winfo_reqheight()
             + 60
         )
         self.root.minsize(req_w, req_h)
@@ -1919,8 +2236,6 @@ class ToggleApp:
         self.controls_frame.grid_configure(columnspan=1)
         self.list_frame.grid()
         self.bottom_frame.pack(side="top", expand=True, fill="both", pady=(10, 0))
-        self.display_info.pack(in_=self.controls_inner, before=self.button_row, pady=(0, 5))
-        self.radio_frame.pack(in_=self.controls_inner, before=self.button_row, pady=(0, 10))
 
         self.root.minsize(*self._full_minsize)
         if self._saved_geometry:
@@ -1942,4 +2257,8 @@ class ToggleApp:
 
 
 if __name__ == "__main__":
-    ToggleApp().run()
+    _mutex_handle, _already_running = _acquire_single_instance_lock()
+    if _already_running:
+        _focus_existing_instance()
+    else:
+        ToggleApp().run()

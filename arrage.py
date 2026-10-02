@@ -350,6 +350,18 @@ def open_sites(urls=None, monitor_index=None):
     return opened
 
 
+def minimize_window(hwnd):
+    win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+
+
+def maximize_window(hwnd):
+    win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+
+
 def close_windows(hwnds):
     for hwnd in hwnds:
         try:

@@ -4,7 +4,7 @@
   "show_app_address": false,
   "rows": {
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login": {
-      "checked": true,
+      "checked": false,
       "browsers": [
         "Chrome"
       ],
@@ -15,21 +15,21 @@
       "browsers": [
         "Chrome"
       ],
-      "target": -1
+      "target": 2
     },
     "https://reliance-qa.allegromicro.com/Test/rel/#/app/auth/login": {
-      "checked": false,
-      "browsers": [
-        "Chrome"
-      ],
-      "target": -1
-    },
-    "https://allegro-rcp.etq.com/Allegro/reliance": {
       "checked": true,
       "browsers": [
         "Chrome"
       ],
       "target": 1
+    },
+    "https://allegro-rcp.etq.com/Allegro/reliance": {
+      "checked": false,
+      "browsers": [
+        "Chrome"
+      ],
+      "target": 2
     },
     "https://allegromicro.atlassian.net/issues/?filter=25386": {
       "checked": true,
@@ -64,7 +64,7 @@
       "browsers": [
         "Chrome"
       ],
-      "target": 0
+      "target": 2
     },
     "https://allegromicro.sharepoint.com/sites/Intranet/": {
       "checked": false,
@@ -130,11 +130,11 @@
       "target": 2
     },
     "https://sso.myhr.asia/login/ampi": {
-      "checked": true,
+      "checked": false,
       "browsers": [
         "Chrome"
       ],
-      "target": 0
+      "target": 2
     },
     "https://pyuibuilder.com/": {
       "checked": false,

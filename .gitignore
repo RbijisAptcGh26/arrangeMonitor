@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# User-generated local config (per-machine data written by the app)
+settings.json
+sites.txt
+apps.txt

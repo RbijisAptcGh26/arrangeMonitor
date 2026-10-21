@@ -370,5 +370,23 @@ def close_windows(hwnds):
             print(f"Failed to close hwnd {hwnd}: {e}")
 
 
+BROWSER_PROCESS_NAMES = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"]
+
+
+def close_all_browsers():
+    """Force-kill every known browser process on the system, not just the
+    windows this app opened."""
+    for name in BROWSER_PROCESS_NAMES:
+        try:
+            subprocess.run(
+                ["taskkill", "/IM", name, "/F", "/T"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception as e:
+            print(f"Failed to close {name}: {e}")
+
+
 if __name__ == "__main__":
     open_sites()

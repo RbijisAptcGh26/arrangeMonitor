@@ -482,6 +482,7 @@ class ToggleApp:
         self._apply_app_address_visibility()
         self._update_sites_label()
         self._update_apps_label()
+        self._draw_monitor_layout()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self._was_maximized = False
@@ -629,7 +630,9 @@ class ToggleApp:
         }
         self.rows.append(row)
         check_var.trace_add("write", lambda *_a, r=row: self._apply_row_tint(r))
+        check_var.trace_add("write", lambda *_a: self._draw_monitor_layout())
         target_var.trace_add("write", lambda *_a, r=row: self._apply_row_tint(r))
+        target_var.trace_add("write", lambda *_a: self._draw_monitor_layout())
         for w in (row_bg, left_panel, name_entry, addr_entry, del_btn):
             self._bind_wheel(w, self.canvas)
         self._apply_row_tint(row)
@@ -1738,24 +1741,26 @@ class ToggleApp:
 
     def _entries_by_monitor(self):
         """Returns {monitor_index: [(kind, row_id, label), ...]} — one entry per
-        open site/app row, used to draw draggable bands in the monitor figure."""
+        checked site/app row, used to draw draggable bands in the monitor figure.
+        Reflects each row's resolved target display, so the figure previews
+        where sites/apps will land even before they're opened."""
         groups = {}
-        for rid, per_row in self.hwnds.items():
-            mon_idx = self.site_monitor.get(rid)
-            if mon_idx is None or not per_row:
+        for row in self.rows:
+            if not row["check_var"].get():
                 continue
-            row = self._row(rid)
-            name = row["name_var"].get().strip() if row else ""
-            url = row["url_var"].get().strip() if row else ""
+            rid = row["row_id"]
+            mon_idx = self._resolve_target(rid)
+            name = row["name_var"].get().strip()
+            url = row["url_var"].get().strip()
             label = name or url or "site"
             groups.setdefault(mon_idx, []).append(("site", rid, label))
-        for rid, hwnd in self.app_hwnds.items():
-            mon_idx = self.app_monitor.get(rid)
-            if mon_idx is None:
+        for row in self.app_rows:
+            if not row["check_var"].get():
                 continue
-            row = self._app_row(rid)
-            name = row["name_var"].get().strip() if row else ""
-            path = row["path_var"].get().strip() if row else ""
+            rid = row["row_id"]
+            mon_idx = self._resolve_app_target(rid)
+            name = row["name_var"].get().strip()
+            path = row["path_var"].get().strip()
             groups.setdefault(mon_idx, []).append(("app", rid, name or path or "app"))
         return groups
 
@@ -1872,7 +1877,9 @@ class ToggleApp:
         }
         self.app_rows.append(row)
         check_var.trace_add("write", lambda *_a, r=row: self._apply_app_row_tint(r))
+        check_var.trace_add("write", lambda *_a: self._draw_monitor_layout())
         target_var.trace_add("write", lambda *_a, r=row: self._apply_app_row_tint(r))
+        target_var.trace_add("write", lambda *_a: self._draw_monitor_layout())
         for w in (row_bg, cb, name_entry, display_lbl, radio_cell, path_entry, del_btn):
             self._bind_wheel(w, self.app_canvas)
         self._apply_app_row_tint(row)
@@ -2246,10 +2253,9 @@ class ToggleApp:
             arrage.save_settings(self._collect_settings())
         except Exception as e:
             print(f"Failed to save settings: {e}")
-        all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
-        all_hwnds.extend(self.app_hwnds.values())
-        if all_hwnds:
-            arrage.close_windows(all_hwnds)
+        if self.app_hwnds:
+            arrage.close_windows(list(self.app_hwnds.values()))
+        arrage.close_all_browsers()
         self.root.destroy()
 
     def run(self):

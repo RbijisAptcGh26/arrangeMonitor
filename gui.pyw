@@ -124,6 +124,7 @@ class ToggleApp:
         self.sites = arrage.load_sites()
         self.apps = arrage.load_apps()
         self.settings = arrage.load_settings()
+        self._resume_monitor_count, self._resume_sites = arrage.load_active_sites()
         self._row_settings = self.settings.get("rows", {}) if isinstance(self.settings.get("rows"), dict) else {}
         self._app_row_settings = self.settings.get("apps", {}) if isinstance(self.settings.get("apps"), dict) else {}
         self.rows = []
@@ -491,6 +492,45 @@ class ToggleApp:
 
         self._enter_compact()
         self._position_at_monitor_corner(monitor_index=0)
+
+        self._idle_timer_id = self.root.after(4000, self._on_idle_timeout)
+        self.root.bind_all("<ButtonPress>", self._cancel_idle_timer, add="+")
+        self.root.bind_all("<KeyPress>", self._cancel_idle_timer, add="+")
+
+    def _cancel_idle_timer(self, _event=None):
+        if self._idle_timer_id is not None:
+            self.root.after_cancel(self._idle_timer_id)
+            self._idle_timer_id = None
+
+    def _on_idle_timeout(self):
+        self._idle_timer_id = None
+        if self.busy or self.is_on or self.monitor_count == 0:
+            return
+        saved_monitor_count, saved_sites = self._resume_monitor_count, self._resume_sites
+        if not saved_sites:
+            return
+        mismatch = saved_monitor_count != self.monitor_count
+        forced_display = self.monitor_count - 1
+
+        rows_by_url = {r["url_var"].get().strip(): r for r in self.rows}
+        for row in self.rows:
+            row["check_var"].set(False)
+
+        for entry in saved_sites:
+            row = rows_by_url.get(entry["url"])
+            if row is None:
+                continue
+            target = forced_display if mismatch else max(0, min(entry["display"], self.monitor_count - 1))
+            row["target_var"].set(target)
+            any_browser = False
+            for name, var in row.get("browser_vars", {}).items():
+                on = name in entry["browsers"]
+                var.set(on)
+                any_browser = any_browser or on
+            if any_browser:
+                row["check_var"].set(True)
+
+        self.turn_on()
 
     def _position_at_monitor_corner(self, monitor_index=0, corner="lower-right"):
         try:
@@ -1078,6 +1118,24 @@ class ToggleApp:
                 parts.append("Displays " + ", ".join(str(d + 1) for d in displays_used))
         self.list_frame.config(text=" | ".join(parts))
         self._draw_monitor_layout()
+        self._sync_active_sites()
+
+    def _sync_active_sites(self):
+        entries = []
+        for row in self.rows:
+            rid = row["row_id"]
+            if rid not in self.hwnds:
+                continue
+            entries.append((
+                row["name_var"].get().strip(),
+                row["url_var"].get().strip(),
+                self.site_monitor.get(rid, 0),
+                sorted(self.hwnds[rid].keys()),
+            ))
+        try:
+            arrage.save_active_sites(entries, self.monitor_count)
+        except Exception as e:
+            print(f"Failed to save active sites: {e}")
 
     def _all_site_names(self):
         return sorted({r["name_var"].get().strip() for r in self.rows if r["name_var"].get().strip()})
@@ -1496,8 +1554,7 @@ class ToggleApp:
         self._update_sites_label()
 
     def turn_off(self):
-        all_hwnds = [hwnd for per_row in self.hwnds.values() for hwnd in per_row.values()]
-        arrage.close_windows(all_hwnds)
+        arrage.close_all_browsers()
         for row in self.rows:
             row["check_var"].set(False)
             self._set_display_label(row["row_id"], None)

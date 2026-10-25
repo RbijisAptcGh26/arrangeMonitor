@@ -1,3 +1,4 @@
+import configparser
 import ctypes
 import json
 import os
@@ -14,6 +15,7 @@ DWMWA_EXTENDED_FRAME_BOUNDS = 9
 SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites.txt")
 APPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps.txt")
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+ACTIVE_SITES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "activeSites.ini")
 
 DisplayOnscreen2Vertically = [
     "https://reliance.allegromicro.com/Prod/rel/#/app/auth/login",
@@ -52,6 +54,48 @@ def load_settings(path=SETTINGS_FILE):
 def save_settings(data, path=SETTINGS_FILE):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def save_active_sites(entries, monitor_count, path=ACTIVE_SITES_FILE):
+    """entries: list of (name, url, display_index, browser_names)."""
+    cfg = configparser.ConfigParser()
+    cfg["meta"] = {"monitor_count": str(monitor_count)}
+    for i, (name, url, display_index, browser_names) in enumerate(entries):
+        cfg[f"site:{i}"] = {
+            "name": name,
+            "url": url,
+            "display": str(display_index),
+            "browsers": ",".join(browser_names),
+        }
+    with open(path, "w", encoding="utf-8") as f:
+        cfg.write(f)
+
+
+def load_active_sites(path=ACTIVE_SITES_FILE):
+    """Returns (monitor_count, sites) where sites is a list of dicts with
+    name/url/display/browsers. Returns (0, []) if the file is missing or
+    malformed."""
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(path, encoding="utf-8")
+        monitor_count = cfg.getint("meta", "monitor_count")
+    except (configparser.Error, ValueError):
+        return 0, []
+
+    sites = []
+    for section in cfg.sections():
+        if not section.startswith("site:"):
+            continue
+        try:
+            sites.append({
+                "name": cfg.get(section, "name", fallback=""),
+                "url": cfg.get(section, "url"),
+                "display": cfg.getint(section, "display", fallback=0),
+                "browsers": [b for b in cfg.get(section, "browsers", fallback="").split(",") if b],
+            })
+        except (configparser.Error, ValueError):
+            continue
+    return monitor_count, sites
 
 
 DEFAULT_APPS = [

@@ -1,0 +1,14 @@
+[meta]
+monitor_count = 3
+
+[site:0]
+name = Example Site
+url = https://example.com/
+display = 1
+browsers = Chrome
+
+[site:1]
+name = Another Site
+url = https://example.org/
+display = 2
+browsers = Chrome,Firefox
